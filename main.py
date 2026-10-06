@@ -1,4 +1,11 @@
 from fastapi import FastAPI, HTTPException
+from supabase import create_client, Client
+
+SUPABASE_URL = "https://your-supabase-url.supabase.co"
+SUPABASE_KEY = "your-supabase-key"
+
+#Initialize the Supabase Client
+supabase : Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 # Initialize the API app
@@ -17,7 +24,7 @@ def read_root():
 
 #POST: Add a new item directly via the SDK
 @app.post("/items/")
-def create_item(name: str, description: str = none):
+def create_item(name: str, description: str = None):
     try:
         response = supabase.table("items").insert({"name":name, "description": description}).execute()
         return response.data
