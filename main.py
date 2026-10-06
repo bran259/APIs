@@ -1,8 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from supabase import create_client, Client
+from dotenv import load_dotenv
 
-SUPABASE_URL = "https://your-supabase-url.supabase.co"
-SUPABASE_KEY = "your-supabase-key"
+load_dotenv()  # Load environment variables from .env file
+
+#Securely load the keys (.env file)
+SUPABASE_URL = "https://rdkakvhrdrhpvvelmmtu.supabase.co"
+SUPABASE_KEY = "sb_publishable_FbUVWHsu8RZgLYtSB3-wiw_zp0W3iWf"
 
 #Initialize the Supabase Client
 supabase : Client = create_client(SUPABASE_URL, SUPABASE_KEY)
