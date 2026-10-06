@@ -1,0 +1,32 @@
+API samples for database use
+
+Store each sample with consistent fields for searching, reuse, and testing.
+
+Suggested fields:
+- name: brief sample title
+- method and endpoint: HTTP verb and URL; use placeholders such as {userId}
+- headers and query parameters: JSON objects, excluding secret values
+- request_body and response_example: JSON payloads, or null when not applicable
+- expected_status: expected HTTP status code
+- description, tags, api_version, and last_verified: context and maintenance details
+
+Example record:
+{
+	"name": "Get user",
+	"method": "GET",
+	"url": "https://api.example.com/v1/users/{userId}",
+	"headers": { "Accept": "application/json" },
+	"query_params": {},
+	"request_body": null,
+	"expected_status": 200,
+	"response_example": { "id": "usr_123", "name": "Example User" },
+	"description": "Retrieve a user by ID.",
+	"tags": ["users", "read"],
+	"api_version": "v1"
+}
+
+Database notes:
+- Keep commonly filtered fields (method, endpoint, status, and tags) searchable; JSON columns work well for headers and payloads.
+- Use synthetic data. Never store real API keys, tokens, passwords, or sensitive personal information in samples.
+- Document required parameters and authentication without recording secret values.
+- Track when examples were last verified and update them when the API changes.
