@@ -7,7 +7,12 @@ app = FastAPI()
 #GET
 @app.get("/")
 def read_root():
-    return {"message": "welcome to the API!"}
+    try:
+        response = supabase.table("items").select("*").execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=(e))
+   
 
 
 #POST: Add a new item directly via the SDK
@@ -17,7 +22,7 @@ def create_item(name: str, description: str = none):
         response = supabase.table("items").insert({"name":name, "description": description}).execute()
         return response.data
     except Exception as e:
-        raise HTTPException(status_code=400, detail=(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 
