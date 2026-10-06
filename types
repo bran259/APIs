@@ -1,0 +1,4 @@
+• REST: Uses standard web protocols (HTTP) and is fast and stateless.
+• SOAP: A strict, highly secure protocol often used in older enterprise systems.
+• GraphQL: Lets clients request exact data fields to avoid downloading extra information.
+• WebSockets: Creates a two-way, real-time connection for live chats or tracking
