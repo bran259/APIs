@@ -35,10 +35,12 @@ def read_root():
 
 
 #POST: Add a new item directly via the SDK
+#POST endpoint using the Pydantic model for request validation
 @app.post("/items/")
-def create_item(name: str, description: str = None):
+def create_item(item: ItemCreate):
     try:
-        response = supabase.table("items").insert({"name":name, "description": description}).execute()
+               # item.dict() converts the Pydantic object into a clean Python dictionary
+        response = supabase.table("items").insert(item.dict()).execute()
         return response.data
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

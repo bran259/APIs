@@ -1,4 +1,11 @@
 • REST: Uses standard web protocols (HTTP) and is fast and stateless.
 • SOAP: A strict, highly secure protocol often used in older enterprise systems.
 • GraphQL: Lets clients request exact data fields to avoid downloading extra information.
-• WebSockets: Creates a two-way, real-time connection for live chats or tracking
+• WebSockets: Creates a two-way, real-time connection for live chats or 
+
+Pydantic Models
+
+How this protects your API
+
+1. Automatic Error Handling: If a user tries to send a request without a name, or sends an empty string "", FastAPI will automatically intercept the request and return a clear 422 Unprocessable Entity status code explaining exactly what went wrong. Your database will never see the bad data.
+2. Interactive Clean Docs: If you reload your browser and open http://127.0.0, you will see that the POST /items/ route no longer expects data through URL query strings. Instead, it features an interactive Request Body JSON box displaying your exact data model guidelines.
