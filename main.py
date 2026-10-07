@@ -1,4 +1,6 @@
+import os
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -14,6 +16,12 @@ supabase : Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Initialize the API app
 app = FastAPI()
+
+#Define the Pydantic Validation Schema
+class ItemCreate(BaseModel):
+    name: str = Field(..., min_lenght=1, max_lenght=100, description="The name of the item")
+    description: str | None = Field(None, max_leght=500, description="An optional detailed description")
+
 
 #GET
 @app.get("/")
