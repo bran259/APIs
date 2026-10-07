@@ -6,7 +6,7 @@ load_dotenv()  # Load environment variables from .env file
 
 #Securely load the keys (.env file)
 SUPABASE_URL = "https://rdkakvhrdrhpvvelmmtu.supabase.co"
-SUPABASE_KEY = "sb_publishable_FbUVWHsu8RZgLYtSB3-wiw_zp0W3iWf"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJka2FrdmhyZHJocHZ2ZWxtbXR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyODQwMjksImV4cCI6MjEwNjg2MDAyOX0.zmGkdjtTpYryGAkPhrPJgGIl9TkzB6U3OgJvTfySJZE"
 
 #Initialize the Supabase Client
 supabase : Client = create_client(SUPABASE_URL, SUPABASE_KEY)
