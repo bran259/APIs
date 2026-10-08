@@ -1,7 +1,7 @@
 import os
-from fastapi import FastAPI, HTTPException
-from fastapi.security import HTTPBearer
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, EmailStr, Field
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -23,6 +23,7 @@ security = HTTPBearer()
 
 #Define the Pydantic Validation Schema
 class User(BaseModel):
+    email: EmailStr
     password: str = Field(..., min_length=6)
     
 class ItemCreate(BaseModel):
@@ -86,15 +87,22 @@ def login(user: UserAuth):
 
 #POST: Add a new item directly via the SDK
 #POST endpoint using the Pydantic model for request validation
+#  PROTECTED ROUTE: Only accessible with a valid token
+# Notice: 'current_user' is added as a Dependency injection
 @app.post("/items/")
-def create_item(item: ItemCreate):
+def create_item(item: ItemCreate, current_user: dict = Depends(get_current_user)):
     try:
-               # item.dict() converts the Pydantic object into a clean Python dictionary
-        response = supabase.table("items").insert(item.dict()).execute()
-        return response.data
+        # You can now access 'current_user.id' to stamp who created the row!
+        item_data = item.dict()
+        
+        response = supabase.table("items").insert(item_data).execute()
+        return {
+            "message": "Item successfully created by authenticated user!",
+            "author_id": current_user.id,
+            "data": response.data
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 
 
