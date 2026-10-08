@@ -46,7 +46,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 #GET
 #PUBLIC ROUTE: Read items
-@app.get("/items/")
+@app.get("/")
 def read_root():
     try:
         response = supabase.table("items").select("*").execute()
