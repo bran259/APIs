@@ -1,5 +1,6 @@
 import os
 from fastapi import FastAPI, HTTPException
+from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -17,10 +18,16 @@ supabase : Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Initialize the API app
 app = FastAPI()
 
+#FastAPI security scheme to extract the "Bearer <token>" header
+security = HTTPBearer()
+
 #Define the Pydantic Validation Schema
+class User(BaseModel):
+    password: str = Field(..., min_length=6)
+    
 class ItemCreate(BaseModel):
-    name: str = Field(..., min_lenght=1, max_lenght=100, description="The name of the item")
-    description: str | None = Field(None, max_leght=500, description="An optional detailed description")
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str | None = Field(None, max_length=500)
 
 
 #GET
