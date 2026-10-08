@@ -57,7 +57,7 @@ def read_root():
     
 #  PUBLIC ROUTE: User Registration
 @app.post("/auth/signup")
-def sign_up(user: UserAuth):
+def sign_up(user: User):
     try:
         response = supabase.auth.sign_up({
             "email": user.email,
@@ -69,7 +69,7 @@ def sign_up(user: UserAuth):
 
 #  PUBLIC ROUTE: User Login (Generates your access token)
 @app.post("/auth/login")
-def login(user: UserAuth):
+def login(user: User):
     try:
         response = supabase.auth.sign_in_with_password({
             "email": user.email,
