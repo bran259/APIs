@@ -44,15 +44,16 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         )
 
 #GET
-@app.get("/")
+#PUBLIC ROUTE: Read items
+@app.get("/items/")
 def read_root():
     try:
         response = supabase.table("items").select("*").execute()
         return response.data
     except Exception as e:
-        raise HTTPException(status_code=400, detail=(e))
-   
+        raise HTTPException(status_code=400, detail=str(e))
 
+    
 #  PUBLIC ROUTE: User Registration
 @app.post("/auth/signup")
 def sign_up(user: UserAuth):
