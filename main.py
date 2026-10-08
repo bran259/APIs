@@ -29,6 +29,19 @@ class ItemCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
 
+#  AUTH DEPENDENCY: Verifies incoming JWT with Supabase
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials  # Extracts the clean text token
+    try:
+        # Ask Supabase to validate this token against its database
+        user_response = supabase.auth.get_user(token)
+        return user_response.user  # Returns user profile if valid
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 #GET
 @app.get("/")
