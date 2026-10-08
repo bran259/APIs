@@ -65,6 +65,23 @@ def sign_up(user: UserAuth):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+#  PUBLIC ROUTE: User Login (Generates your access token)
+@app.post("/auth/login")
+def login(user: UserAuth):
+    try:
+        response = supabase.auth.sign_in_with_password({
+            "email": user.email,
+            "password": user.password
+        })
+          # This access_token is what your frontend uses to make secure API calls
+        return {
+            "access_token": response.session.access_token,
+            "token_type": "bearer",
+            "user_id": response.user.id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 #POST: Add a new item directly via the SDK
 #POST endpoint using the Pydantic model for request validation
