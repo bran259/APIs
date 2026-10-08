@@ -53,6 +53,18 @@ def read_root():
         raise HTTPException(status_code=400, detail=(e))
    
 
+#  PUBLIC ROUTE: User Registration
+@app.post("/auth/signup")
+def sign_up(user: UserAuth):
+    try:
+        response = supabase.auth.sign_up({
+            "email": user.email,
+            "password": user.password
+        })
+        return{"message": "Registartion succesful! Please check your email for confirmation.", "user_id": response.user.id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 #POST: Add a new item directly via the SDK
 #POST endpoint using the Pydantic model for request validation
