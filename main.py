@@ -119,7 +119,7 @@ def update_item(item_id: int, item: ItemCreate, current_user=Depends(get_current
         if not response.data:
             raise HTTPException(status_code=404, detail="Item not found")
         return{
-            "meassage": f"item {item_id} succesfully updated by user {current_user.id}","
+            "meassage": f"item {item_id} succesfully updated by user {current_user.id}",
             "data":response.data
         }
     except HTTPException as he:
