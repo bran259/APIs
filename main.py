@@ -105,7 +105,28 @@ def create_item(item: ItemCreate, current_user: dict = Depends(get_current_user)
         raise HTTPException(status_code=400, detail=str(e))
 
 
+#PUT: Update an existing item by its ID
+@app.put("/items/{item_id}")
+def update_item(item_id: int, item: ItemCreate, current_user=Depends(get_current_user)):
+    try:
+        # Update the row where the 'id' column matches the path parameter
+        response = supabase.table("items")\
+            .update(item.dict())\
+            .eq("id", item_id)\
+            .execute()
 
+        # If no rows were affected,   the item doesn't exist
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Item not found")
+        return{
+            "meassage": f"item {item_id} succesfully updated by user {current_user.id}","
+            "data":response.data
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
 
 
 
