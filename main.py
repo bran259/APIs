@@ -127,7 +127,25 @@ def update_item(item_id: int, item: ItemCreate, current_user=Depends(get_current
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
         
-
+# DELETE ROUTE: Remove an item by its ID
+@app.delete("/items/{item_id}")
+def delete_item(item_id: int, current_user=Depends(get_current_user)):
+    try:
+        #Delete the row where the 'id' column matches the path parameter
+        response = supabase.table("items")\
+            .delete()\
+            .eq("id", item_id)\
+            .execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Item not found")
+        return {
+            "message": f"item {item_id} successfully deleted by user {current_user.id}",
+            "deleted_data": response.data
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 
