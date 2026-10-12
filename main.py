@@ -69,7 +69,7 @@ def read_root():
 
     
 #  PUBLIC ROUTE: User Registration
-@app.post("/auth/signup")
+@app.post("/auth/signup", status_code=status.HTTP_201_CREATED)
 def sign_up(user: User):
     try:
         response = supabase.auth.sign_up({
@@ -78,7 +78,7 @@ def sign_up(user: User):
         })
         return{"message": "Registartion succesful! Please check your email for confirmation.", "user_id": response.user.id}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 #  PUBLIC ROUTE: User Login (Generates your access token)
 @app.post("/auth/login")
