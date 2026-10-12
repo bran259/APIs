@@ -59,14 +59,26 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 #GET
 #PUBLIC ROUTE: Read items
-@app.get("/")
-def read_root():
+@app.get("/items/")
+def read_all_items():
     try:
         response = supabase.table("items").select("*").execute()
         return response.data
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+# NEW: GET SINGLE ITEM (Public or Protected)
+@app.get("/items/{item_id}")
+def read_single_item(item_id: int):
+    try:
+        response = supabase.table("items").select("*").eq("id", item_id).execute()
+        if not response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        return response.data[0]
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     
 #  PUBLIC ROUTE: User Registration
 @app.post("/auth/signup", status_code=status.HTTP_201_CREATED)
