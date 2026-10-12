@@ -172,6 +172,7 @@ def delete_item(item_id: int, current_user=Depends(get_current_user)):
         response = supabase.table("items")\
             .delete()\
             .eq("id", item_id)\
+            .eq("user_id", current_user.id)\
             .execute()
         if not response.data:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found or you do not have permission to delete it")
