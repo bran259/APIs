@@ -133,23 +133,26 @@ def create_item(item: ItemCreate, current_user=Depends(get_current_user)):
 @app.put("/items/{item_id}")
 def update_item(item_id: int, item: ItemCreate, current_user=Depends(get_current_user)):
     try:
-        # Update the row where the 'id' column matches the path parameter
+        # ENHANCED: We verify that the item's ID matches AND it belongs to the active logged-in user
         response = supabase.table("items")\
-            .update(item.dict())\
+            .update(item.model_dump())\
             .eq("id", item_id)\
+            .eq("user_id", current_user.id)\
             .execute()
 
-        # If no rows were affected,   the item doesn't exist
         if not response.data:
-            raise HTTPException(status_code=404, detail="Item not found")
-        return{
-            "meassage": f"item {item_id} succesfully updated by user {current_user.id}",
-            "data":response.data
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="Item not found or you do not have permission to modify it"
+            )
+        return {
+            "message": f"Item {item_id} successfully updated by its owner.",
+            "data": response.data
         }
     except HTTPException as he:
         raise he
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         
 # DELETE ROUTE: Remove an item by its ID
 @app.delete("/items/{item_id}")
