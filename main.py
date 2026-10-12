@@ -1,4 +1,5 @@
 import os
+from uuid import UUID
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -63,6 +64,15 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 def read_all_items():
     try:
         response = supabase.table("items").select("*").execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+# PUBLIC ROUTE: Read items belonging to a user
+@app.get("/items/user/{user_id}")
+def read_user_items(user_id: UUID):
+    try:
+        response = supabase.table("items").select("*").eq("user_id", str(user_id)).execute()
         return response.data
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
