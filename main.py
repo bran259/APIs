@@ -20,6 +20,16 @@ supabase : Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Initialize the API app
 app = FastAPI()
 
+# NEW: CORS Middleware Configuration
+# Change ["*"] to your specific frontend URL (e.g., ["https://myfrontend.com"]) 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credetials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 #FastAPI security scheme to extract the "Bearer <token>" header
 security = HTTPBearer()
 
