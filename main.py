@@ -114,11 +114,11 @@ def login(user: User):
 #POST endpoint using the Pydantic model for request validation
 #  PROTECTED ROUTE: Only accessible with a valid token
 # Notice: 'current_user' is added as a Dependency injection
-@app.post("/items/")
-def create_item(item: ItemCreate, current_user: dict = Depends(get_current_user)):
+@app.post("/items/", status_code=status.HTTP_201_CREATED)
+def create_item(item: ItemCreate, current_user=Depends(get_current_user)):
     try:
-        # You can now access 'current_user.id' to stamp who created the row!
-        item_data = item.dict()
+        item_data = item.model_dump()  # Note: .dict() is deprecated in Pydantic v2, use .model_dump()
+        item_data["user_id"] = current_user.id  # Automatically tie this item to the creator's ID
         
         response = supabase.table("items").insert(item_data).execute()
         return {
@@ -127,8 +127,7 @@ def create_item(item: ItemCreate, current_user: dict = Depends(get_current_user)
             "data": response.data
         }
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 #PUT: Update an existing item by its ID
 @app.put("/items/{item_id}")
