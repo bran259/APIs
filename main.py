@@ -164,7 +164,7 @@ def delete_item(item_id: int, current_user=Depends(get_current_user)):
             .eq("id", item_id)\
             .execute()
         if not response.data:
-            raise HTTPException(status_code=404, detail="Item not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found or you do not have permission to delete it")
         return {
             "message": f"item {item_id} successfully deleted by user {current_user.id}",
             "deleted_data": response.data
@@ -172,7 +172,7 @@ def delete_item(item_id: int, current_user=Depends(get_current_user)):
     except HTTPException as he:
         raise he
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 
