@@ -79,9 +79,9 @@ def read_user_items(user_id: UUID):
 
 # NEW: GET SINGLE ITEM (Public or Protected)
 @app.get("/items/{item_id}")
-def read_single_item(item_id: int):
+def read_single_item(item_id: UUID):
     try:
-        response = supabase.table("items").select("*").eq("id", item_id).execute()
+        response = supabase.table("items").select("*").eq("id", str(item_id)).execute()
         if not response.data:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
         return response.data[0]
@@ -141,12 +141,12 @@ def create_item(item: ItemCreate, current_user=Depends(get_current_user)):
 
 #PUT: Update an existing item by its ID
 @app.put("/items/{item_id}")
-def update_item(item_id: int, item: ItemCreate, current_user=Depends(get_current_user)):
+def update_item(item_id: UUID, item: ItemCreate, current_user=Depends(get_current_user)):
     try:
         # ENHANCED: We verify that the item's ID matches AND it belongs to the active logged-in user
         response = supabase.table("items")\
             .update(item.model_dump())\
-            .eq("id", item_id)\
+            .eq("id", str(item_id))\
             .eq("user_id", current_user.id)\
             .execute()
 
@@ -166,12 +166,12 @@ def update_item(item_id: int, item: ItemCreate, current_user=Depends(get_current
         
 # DELETE ROUTE: Remove an item by its ID
 @app.delete("/items/{item_id}")
-def delete_item(item_id: int, current_user=Depends(get_current_user)):
+def delete_item(item_id: UUID, current_user=Depends(get_current_user)):
     try:
         #Delete the row where the 'id' column matches the path parameter
         response = supabase.table("items")\
             .delete()\
-            .eq("id", item_id)\
+            .eq("id", str(item_id))\
             .eq("user_id", current_user.id)\
             .execute()
         if not response.data:
