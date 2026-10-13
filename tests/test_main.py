@@ -1,0 +1,242 @@
+import os
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture(scope="session")
+def app_module():
+    with patch.dict(
+        os.environ,
+        {
+            "SUPABASE_URL": "https://unit-test.supabase.co",
+            "SUPABASE_KEY": "unit-test-key",
+        },
+    ):
+        with patch("supabase.create_client", return_value=MagicMock()):
+            import main
+
+    return main
+
+
+@pytest.fixture
+def api(app_module, monkeypatch):
+    supabase = MagicMock()
+    monkeypatch.setattr(app_module, "supabase", supabase)
+    return TestClient(app_module.app), supabase
+
+
+def test_read_all_items(api):
+    client, supabase = api
+    supabase.table.return_value.select.return_value.execute.return_value.data = [
+        {"id": 1, "name": "Notebook"}
+    ]
+
+    response = client.get("/items/")
+
+    assert response.status_code == 200
+    assert response.json() == [{"id": 1, "name": "Notebook"}]
+    supabase.table.assert_called_once_with("items")
+
+
+def test_read_user_items_filters_by_user_id(api):
+    client, supabase = api
+    user_id = "123e4567-e89b-12d3-a456-426614174000"
+    supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
+        {"id": 1, "user_id": user_id, "name": "Notebook"}
+    ]
+
+    response = client.get(f"/items/user/{user_id}")
+
+    assert response.status_code == 200
+    assert response.json()[0]["user_id"] == user_id
+    supabase.table.return_value.select.return_value.eq.assert_called_once_with(
+        "user_id", user_id
+    )
+
+
+def test_read_user_items_rejects_invalid_user_id(api):
+    client, supabase = api
+
+    response = client.get("/items/user/not-a-uuid")
+
+    assert response.status_code == 422
+    supabase.table.assert_not_called()
+
+
+def test_read_single_item(api):
+    client, supabase = api
+    supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
+        {"id": 7, "name": "Notebook"}
+    ]
+
+    response = client.get("/items/7")
+
+    assert response.status_code == 200
+    assert response.json() == {"id": 7, "name": "Notebook"}
+
+
+def test_read_single_item_returns_404_when_missing(api):
+    client, supabase = api
+    supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
+
+    response = client.get("/items/999")
+
+    assert response.status_code == 404
+
+
+def test_sign_up(api):
+    client, supabase = api
+    supabase.auth.sign_up.return_value = SimpleNamespace(
+        user=SimpleNamespace(id="user-123")
+    )
+
+    response = client.post(
+        "/auth/signup",
+        json={"email": "person@example.com", "password": "secure-pass"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["user_id"] == "user-123"
+    supabase.auth.sign_up.assert_called_once_with(
+        {"email": "person@example.com", "password": "secure-pass"}
+    )
+
+
+def test_sign_up_rejects_invalid_email(api):
+    client, supabase = api
+
+    response = client.post(
+        "/auth/signup",
+        json={"email": "not-an-email", "password": "secure-pass"},
+    )
+
+    assert response.status_code == 422
+    supabase.auth.sign_up.assert_not_called()
+
+
+def test_login(api):
+    client, supabase = api
+    supabase.auth.sign_in_with_password.return_value = SimpleNamespace(
+        session=SimpleNamespace(access_token="test-access-token"),
+        user=SimpleNamespace(id="user-123"),
+    )
+
+    response = client.post(
+        "/auth/login",
+        json={"email": "person@example.com", "password": "secure-pass"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "access_token": "test-access-token",
+        "token_type": "bearer",
+        "user_id": "user-123",
+    }
+
+
+def test_create_item_requires_authentication(api):
+    client, supabase = api
+
+    response = client.post("/items/", json={"name": "Notebook"})
+
+    assert response.status_code in (401, 403)
+    supabase.table.assert_not_called()
+
+
+def test_create_item_assigns_authenticated_owner(api):
+    client, supabase = api
+    user_id = "user-123"
+    supabase.auth.get_user.return_value = SimpleNamespace(
+        user=SimpleNamespace(id=user_id)
+    )
+    supabase.table.return_value.insert.return_value.execute.return_value.data = [
+        {"id": 3, "name": "Notebook", "user_id": user_id}
+    ]
+
+    response = client.post(
+        "/items/",
+        headers={"Authorization": "Bearer valid-token"},
+        json={"name": "Notebook", "description": "Notes"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["author_id"] == user_id
+    supabase.table.return_value.insert.assert_called_once_with(
+        {"name": "Notebook", "description": "Notes", "user_id": user_id}
+    )
+
+
+def test_create_item_rejects_invalid_token(api):
+    client, supabase = api
+    supabase.auth.get_user.side_effect = RuntimeError("invalid token")
+
+    response = client.post(
+        "/items/",
+        headers={"Authorization": "Bearer invalid-token"},
+        json={"name": "Notebook"},
+    )
+
+    assert response.status_code == 401
+    supabase.table.assert_not_called()
+
+
+def test_create_item_rejects_invalid_payload(api):
+    client, supabase = api
+    supabase.auth.get_user.return_value = SimpleNamespace(
+        user=SimpleNamespace(id="user-123")
+    )
+
+    response = client.post(
+        "/items/",
+        headers={"Authorization": "Bearer valid-token"},
+        json={"name": ""},
+    )
+
+    assert response.status_code == 422
+    supabase.table.assert_not_called()
+
+
+def test_update_item_only_targets_authenticated_owner(api):
+    client, supabase = api
+    user_id = "user-123"
+    supabase.auth.get_user.return_value = SimpleNamespace(
+        user=SimpleNamespace(id=user_id)
+    )
+    supabase.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value.data = [
+        {"id": 3, "name": "Updated", "user_id": user_id}
+    ]
+
+    response = client.put(
+        "/items/3",
+        headers={"Authorization": "Bearer valid-token"},
+        json={"name": "Updated"},
+    )
+
+    assert response.status_code == 200
+    first_filter = supabase.table.return_value.update.return_value.eq
+    first_filter.assert_called_once_with("id", 3)
+    first_filter.return_value.eq.assert_called_once_with("user_id", user_id)
+
+
+def test_delete_item_only_targets_authenticated_owner(api):
+    client, supabase = api
+    user_id = "user-123"
+    supabase.auth.get_user.return_value = SimpleNamespace(
+        user=SimpleNamespace(id=user_id)
+    )
+    supabase.table.return_value.delete.return_value.eq.return_value.eq.return_value.execute.return_value.data = [
+        {"id": 3, "user_id": user_id}
+    ]
+
+    response = client.delete(
+        "/items/3",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+    first_filter = supabase.table.return_value.delete.return_value.eq
+    first_filter.assert_called_once_with("id", 3)
+    first_filter.return_value.eq.assert_called_once_with("user_id", user_id)
