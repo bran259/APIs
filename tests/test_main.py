@@ -68,7 +68,7 @@ def test_read_user_items_rejects_invalid_user_id(api):
 
 def test_read_single_item(api):
     client, supabase = api
-    item_id = "123e4567-e89b-12d3-a456-426614174001"
+    item_id = 2
     supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
         {"id": item_id, "name": "Notebook"}
     ]
@@ -84,7 +84,7 @@ def test_read_single_item(api):
 
 def test_read_single_item_returns_404_when_missing(api):
     client, supabase = api
-    item_id = "123e4567-e89b-12d3-a456-426614174002"
+    item_id = 2
     supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
 
     response = client.get(f"/items/{item_id}")
@@ -92,10 +92,10 @@ def test_read_single_item_returns_404_when_missing(api):
     assert response.status_code == 404
 
 
-def test_read_single_item_rejects_invalid_uuid(api):
+def test_read_single_item_rejects_non_integer_id(api):
     client, supabase = api
 
-    response = client.get("/items/not-a-uuid")
+    response = client.get("/items/not-an-integer")
 
     assert response.status_code == 422
     supabase.table.assert_not_called()
@@ -216,7 +216,7 @@ def test_create_item_rejects_invalid_payload(api):
 def test_update_item_only_targets_authenticated_owner(api):
     client, supabase = api
     user_id = "user-123"
-    item_id = "123e4567-e89b-12d3-a456-426614174003"
+    item_id = 3
     supabase.auth.get_user.return_value = SimpleNamespace(
         user=SimpleNamespace(id=user_id)
     )
@@ -239,7 +239,7 @@ def test_update_item_only_targets_authenticated_owner(api):
 def test_delete_item_only_targets_authenticated_owner(api):
     client, supabase = api
     user_id = "user-123"
-    item_id = "123e4567-e89b-12d3-a456-426614174004"
+    item_id = 4
     supabase.auth.get_user.return_value = SimpleNamespace(
         user=SimpleNamespace(id=user_id)
     )

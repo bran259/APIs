@@ -6,6 +6,8 @@ Run [`migrations/20261012154000_add_items_user_id.sql`](./migrations/20261012154
 
 New items created through `POST /items/` are assigned to the authenticated user. Existing item rows remain with `user_id = NULL`; assign their owners in Supabase before expecting them to appear in `GET /items/user/{user_id}` or be editable/deletable by an owner.
 
+Item `id` values are numeric database IDs. Use the returned `id` (for example, `/items/2`) for single-item reads, updates, and deletes. The `user_id` owner value is a UUID.
+
 ## Tests
 
 Install the development dependencies and run the API tests with:
