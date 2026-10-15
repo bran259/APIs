@@ -38,10 +38,35 @@ def authenticate(supabase, user_id="user-123"):
     return {"Authorization": "Bearer test-access-token"}
 
 
+def test_item_reads_require_authentication(api):
+    client, supabase = api
+
+    collection_response = client.get("/items/")
+    single_item_response = client.get("/items/1")
+
+    assert collection_response.status_code in (401, 403)
+    assert single_item_response.status_code in (401, 403)
+    supabase.table.assert_not_called()
+
+
+def test_user_database_client_uses_request_token(app_module, monkeypatch):
+    user_client = MagicMock()
+    create_client = MagicMock(return_value=user_client)
+    monkeypatch.setattr(app_module, "create_client", create_client)
+
+    result = app_module.create_user_database_client("request-access-token")
+
+    assert result is user_client
+    user_client.postgrest.auth.assert_called_once_with("request-access-token")
+    options = create_client.call_args.kwargs["options"]
+    assert options.auto_refresh_token is False
+    assert options.persist_session is False
+
+
 def test_read_all_items(api):
     client, supabase = api
     headers = authenticate(supabase)
-    supabase.table.return_value.select.return_value.execute.return_value.data = [
+    supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
         {"id": 1, "name": "Notebook"}
     ]
 
@@ -87,8 +112,9 @@ def test_read_user_items_rejects_another_users_id(api):
 
 def test_read_user_items_rejects_invalid_user_id(api):
     client, supabase = api
+    headers = authenticate(supabase)
 
-    response = client.get("/items/user/not-a-uuid")
+    response = client.get("/items/user/not-a-uuid", headers=headers)
 
     assert response.status_code == 422
     supabase.table.assert_not_called()
@@ -127,8 +153,9 @@ def test_read_single_item_returns_404_when_missing(api):
 
 def test_read_single_item_rejects_non_integer_id(api):
     client, supabase = api
+    headers = authenticate(supabase)
 
-    response = client.get("/items/not-an-integer")
+    response = client.get("/items/not-an-integer", headers=headers)
 
     assert response.status_code == 422
     supabase.table.assert_not_called()
