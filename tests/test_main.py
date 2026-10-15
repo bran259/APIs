@@ -1,3 +1,4 @@
+import logging
 import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -78,6 +79,91 @@ def test_read_all_items(api):
     supabase.table.return_value.select.return_value.eq.assert_called_once_with(
         "user_id", "user-123"
     )
+
+
+def test_read_all_items_hides_and_logs_database_errors(api, caplog):
+    client, supabase = api
+    headers = authenticate(supabase)
+    supabase.table.return_value.select.return_value.eq.return_value.execute.side_effect = (
+        RuntimeError("private database details")
+    )
+
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/items/", headers=headers)
+
+    assert response.status_code == 503
+    assert "private database details" not in response.text
+    assert "Database operation read_all_items failed" in caplog.text
+    assert "private database details" in caplog.text
+
+
+def test_database_conflict_returns_safe_conflict_response(api):
+    client, supabase = api
+    headers = authenticate(supabase)
+    import main as app_module
+
+    supabase.table.return_value.select.return_value.eq.return_value.execute.side_effect = (
+        app_module.PostgrestAPIError(
+            {
+                "message": "private constraint details",
+                "code": "23505",
+            }
+        )
+    )
+
+    response = client.get("/items/", headers=headers)
+
+    assert response.status_code == 409
+    assert "private constraint details" not in response.text
+
+
+def test_login_invalid_credentials_are_safe(api):
+    client, supabase = api
+    import main as app_module
+
+    supabase.auth.sign_in_with_password.side_effect = app_module.AuthError(
+        "private auth details", "invalid_credentials"
+    )
+
+    response = client.post(
+        "/auth/login",
+        json={"email": "person@example.com", "password": "secure-pass"},
+    )
+
+    assert response.status_code == 401
+    assert "private auth details" not in response.text
+    assert response.json()["detail"] == "Invalid email or password."
+
+
+def test_unexpected_signup_error_is_safe_and_logged(api, caplog):
+    client, supabase = api
+    supabase.auth.sign_up.side_effect = RuntimeError("private auth details")
+
+    with caplog.at_level(logging.ERROR):
+        response = client.post(
+            "/auth/signup",
+            json={"email": "person@example.com", "password": "secure-pass"},
+        )
+
+    assert response.status_code == 503
+    assert "private auth details" not in response.text
+    assert "Supabase operation signup failed" in caplog.text
+    assert "private auth details" in caplog.text
+
+
+def test_unexpected_token_validation_error_is_service_unavailable(api, caplog):
+    client, supabase = api
+    supabase.auth.get_user.side_effect = RuntimeError("private auth details")
+
+    with caplog.at_level(logging.ERROR):
+        response = client.get(
+            "/items/",
+            headers={"Authorization": "Bearer test-access-token"},
+        )
+
+    assert response.status_code == 503
+    assert "private auth details" not in response.text
+    assert "Supabase operation validate_token failed" in caplog.text
 
 
 def test_read_user_items_filters_by_user_id(api):
@@ -245,7 +331,11 @@ def test_create_item_assigns_authenticated_owner(api):
 
 def test_create_item_rejects_invalid_token(api):
     client, supabase = api
-    supabase.auth.get_user.side_effect = RuntimeError("invalid token")
+    import main as app_module
+
+    supabase.auth.get_user.side_effect = app_module.AuthError(
+        "private token details", "invalid_jwt"
+    )
 
     response = client.post(
         "/items/",
