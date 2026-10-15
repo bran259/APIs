@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from typing import NoReturn
 from uuid import UUID
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field
@@ -205,12 +205,18 @@ def get_current_user(
 #GET
 # PROTECTED ROUTE: Read only the authenticated user's items
 @app.get("/items/")
-def read_all_items(current_user: AuthenticatedUser = Depends(get_current_user)):
+def read_all_items(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
     try:
         response = (
             current_user.database.table("items")
             .select("*")
             .eq("user_id", current_user.id)
+            .order("id")
+            .range(offset, offset + limit - 1)
             .execute()
         )
         return response.data

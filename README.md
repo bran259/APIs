@@ -12,6 +12,8 @@ Run migrations in timestamp order. All `/items/` routes require a valid bearer a
 
 The API validates each token with Supabase and uses that same token for database requests, so the database policies apply to API calls as well. The API also filters reads, updates, and deletes by the authenticated user's ID.
 
+`GET /items/` accepts `limit` and `offset` query parameters for pagination. The default page size is 50; limits must be between 1 and 100, and offset must be non-negative. For example, request `/items/?limit=20&offset=0`, then increase the offset by the number of items returned to fetch the next page. Results are ordered by item ID.
+
 Existing item rows remain with `user_id = NULL` and are inaccessible through owner-only routes until their owners are assigned in Supabase. Item `id` values are numeric database IDs. Use the returned `id` (for example, `/items/2`) for single-item reads, updates, and deletes. The `user_id` owner value is a UUID.
 
 ## CORS configuration

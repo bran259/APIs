@@ -111,7 +111,7 @@ def test_user_database_client_uses_request_token(app_module, monkeypatch):
 def test_read_all_items(api):
     client, supabase = api
     headers = authenticate(supabase)
-    supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
+    supabase.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = [
         {"id": 1, "name": "Notebook"}
     ]
 
@@ -123,12 +123,53 @@ def test_read_all_items(api):
     supabase.table.return_value.select.return_value.eq.assert_called_once_with(
         "user_id", "user-123"
     )
+    query = supabase.table.return_value.select.return_value.eq.return_value
+    query.order.assert_called_once_with("id")
+    query.order.return_value.range.assert_called_once_with(0, 49)
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_status"),
+    [
+        ("limit=0", 422),
+        ("limit=101", 422),
+        ("offset=-1", 422),
+    ],
+)
+def test_read_all_items_rejects_invalid_pagination(api, query, expected_status):
+    client, supabase = api
+    headers = authenticate(supabase)
+
+    response = client.get(f"/items/?{query}", headers=headers)
+
+    assert response.status_code == expected_status
+    supabase.table.assert_not_called()
+
+
+def test_read_all_items_returns_requested_page(api):
+    client, supabase = api
+    headers = authenticate(supabase)
+    supabase.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = [
+        {"id": 3, "name": "Third"},
+        {"id": 4, "name": "Fourth"},
+    ]
+
+    response = client.get("/items/?limit=2&offset=2", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"id": 3, "name": "Third"},
+        {"id": 4, "name": "Fourth"},
+    ]
+    query = supabase.table.return_value.select.return_value.eq.return_value
+    query.order.assert_called_once_with("id")
+    query.order.return_value.range.assert_called_once_with(2, 3)
 
 
 def test_read_all_items_hides_and_logs_database_errors(api, caplog):
     client, supabase = api
     headers = authenticate(supabase)
-    supabase.table.return_value.select.return_value.eq.return_value.execute.side_effect = (
+    supabase.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.side_effect = (
         RuntimeError("private database details")
     )
 
@@ -146,7 +187,7 @@ def test_database_conflict_returns_safe_conflict_response(api):
     headers = authenticate(supabase)
     import main as app_module
 
-    supabase.table.return_value.select.return_value.eq.return_value.execute.side_effect = (
+    supabase.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.side_effect = (
         app_module.PostgrestAPIError(
             {
                 "message": "private constraint details",
