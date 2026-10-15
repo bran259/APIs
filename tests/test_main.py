@@ -66,6 +66,19 @@ def test_cors_origins_are_loaded_from_environment(app_module):
     ]
 
 
+def test_openapi_documents_response_and_error_models(api):
+    client, _ = api
+    openapi = client.get("/openapi.json").json()
+
+    patch_operation = openapi["paths"]["/items/{item_id}"]["patch"]
+    assert patch_operation["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]["$ref"] == "#/components/schemas/ItemEnvelope"
+    assert patch_operation["responses"]["422"]["content"]["application/json"][
+        "schema"
+    ]["$ref"] == "#/components/schemas/ErrorResponse"
+
+
 @pytest.fixture
 def api(app_module, monkeypatch):
     supabase = MagicMock()
@@ -91,6 +104,8 @@ def test_item_reads_require_authentication(api):
 
     assert collection_response.status_code in (401, 403)
     assert single_item_response.status_code in (401, 403)
+    assert "error" in collection_response.json()
+    assert "error" in single_item_response.json()
     supabase.table.assert_not_called()
 
 
@@ -118,14 +133,25 @@ def test_read_all_items(api):
     response = client.get("/items/", headers=headers)
 
     assert response.status_code == 200
-    assert response.json() == [{"id": 1, "name": "Notebook"}]
+    assert response.json() == {
+        "data": [
+            {
+                "id": 1,
+                "name": "Notebook",
+                "description": None,
+                "created_at": None,
+                "user_id": None,
+            }
+        ],
+        "pagination": {"limit": 50, "offset": 0, "next_offset": None},
+    }
     supabase.table.assert_called_once_with("items")
     supabase.table.return_value.select.return_value.eq.assert_called_once_with(
         "user_id", "user-123"
     )
     query = supabase.table.return_value.select.return_value.eq.return_value
     query.order.assert_called_once_with("id")
-    query.order.return_value.range.assert_called_once_with(0, 49)
+    query.order.return_value.range.assert_called_once_with(0, 50)
 
 
 @pytest.mark.parametrize(
@@ -143,6 +169,7 @@ def test_read_all_items_rejects_invalid_pagination(api, query, expected_status):
     response = client.get(f"/items/?{query}", headers=headers)
 
     assert response.status_code == expected_status
+    assert response.json()["error"]["code"] == "validation_error"
     supabase.table.assert_not_called()
 
 
@@ -152,18 +179,34 @@ def test_read_all_items_returns_requested_page(api):
     supabase.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = [
         {"id": 3, "name": "Third"},
         {"id": 4, "name": "Fourth"},
+        {"id": 5, "name": "Fifth"},
     ]
 
     response = client.get("/items/?limit=2&offset=2", headers=headers)
 
     assert response.status_code == 200
-    assert response.json() == [
-        {"id": 3, "name": "Third"},
-        {"id": 4, "name": "Fourth"},
-    ]
+    assert response.json() == {
+        "data": [
+            {
+                "id": 3,
+                "name": "Third",
+                "description": None,
+                "created_at": None,
+                "user_id": None,
+            },
+            {
+                "id": 4,
+                "name": "Fourth",
+                "description": None,
+                "created_at": None,
+                "user_id": None,
+            },
+        ],
+        "pagination": {"limit": 2, "offset": 2, "next_offset": 4},
+    }
     query = supabase.table.return_value.select.return_value.eq.return_value
     query.order.assert_called_once_with("id")
-    query.order.return_value.range.assert_called_once_with(2, 3)
+    query.order.return_value.range.assert_called_once_with(2, 4)
 
 
 def test_read_all_items_hides_and_logs_database_errors(api, caplog):
@@ -178,6 +221,12 @@ def test_read_all_items_hides_and_logs_database_errors(api, caplog):
 
     assert response.status_code == 503
     assert "private database details" not in response.text
+    assert response.json() == {
+        "error": {
+            "code": "service_unavailable",
+            "message": "The database service is temporarily unavailable.",
+        }
+    }
     assert "Database operation read_all_items failed" in caplog.text
     assert "private database details" in caplog.text
 
@@ -200,6 +249,7 @@ def test_database_conflict_returns_safe_conflict_response(api):
 
     assert response.status_code == 409
     assert "private constraint details" not in response.text
+    assert response.json()["error"]["code"] == "conflict"
 
 
 def test_login_invalid_credentials_are_safe(api):
@@ -217,7 +267,9 @@ def test_login_invalid_credentials_are_safe(api):
 
     assert response.status_code == 401
     assert "private auth details" not in response.text
-    assert response.json()["detail"] == "Invalid email or password."
+    assert response.json() == {
+        "error": {"code": "unauthorized", "message": "Invalid email or password."}
+    }
 
 
 def test_unexpected_signup_error_is_safe_and_logged(api, caplog):
@@ -232,6 +284,7 @@ def test_unexpected_signup_error_is_safe_and_logged(api, caplog):
 
     assert response.status_code == 503
     assert "private auth details" not in response.text
+    assert response.json()["error"]["code"] == "service_unavailable"
     assert "Supabase operation signup failed" in caplog.text
     assert "private auth details" in caplog.text
 
@@ -248,6 +301,7 @@ def test_unexpected_token_validation_error_is_service_unavailable(api, caplog):
 
     assert response.status_code == 503
     assert "private auth details" not in response.text
+    assert response.json()["error"]["code"] == "service_unavailable"
     assert "Supabase operation validate_token failed" in caplog.text
 
 
@@ -262,7 +316,8 @@ def test_read_user_items_filters_by_user_id(api):
     response = client.get(f"/items/user/{user_id}", headers=headers)
 
     assert response.status_code == 200
-    assert response.json()[0]["user_id"] == user_id
+    assert response.json()["data"][0]["name"] == "Notebook"
+    assert response.json()["data"][0]["user_id"] == user_id
     supabase.table.return_value.select.return_value.eq.assert_called_once_with(
         "user_id", user_id
     )
@@ -278,6 +333,7 @@ def test_read_user_items_rejects_another_users_id(api):
     )
 
     assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
     supabase.table.assert_not_called()
 
 
@@ -288,6 +344,7 @@ def test_read_user_items_rejects_invalid_user_id(api):
     response = client.get("/items/user/not-a-uuid", headers=headers)
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
     supabase.table.assert_not_called()
 
 
@@ -302,7 +359,15 @@ def test_read_single_item(api):
     response = client.get(f"/items/{item_id}", headers=headers)
 
     assert response.status_code == 200
-    assert response.json() == {"id": item_id, "name": "Notebook"}
+    assert response.json() == {
+        "data": {
+            "id": item_id,
+            "name": "Notebook",
+            "description": None,
+            "created_at": None,
+            "user_id": None,
+        }
+    }
     supabase.table.return_value.select.return_value.eq.assert_called_once_with(
         "id", item_id
     )
@@ -320,6 +385,7 @@ def test_read_single_item_returns_404_when_missing(api):
     response = client.get(f"/items/{item_id}", headers=headers)
 
     assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
 
 
 def test_read_single_item_rejects_non_integer_id(api):
@@ -329,6 +395,7 @@ def test_read_single_item_rejects_non_integer_id(api):
     response = client.get("/items/not-an-integer", headers=headers)
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
     supabase.table.assert_not_called()
 
 
@@ -359,6 +426,7 @@ def test_sign_up_rejects_invalid_email(api):
     )
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
     supabase.auth.sign_up.assert_not_called()
 
 
@@ -398,7 +466,12 @@ def test_create_item_assigns_authenticated_owner(api):
         user=SimpleNamespace(id=user_id)
     )
     supabase.table.return_value.insert.return_value.execute.return_value.data = [
-        {"id": 3, "name": "Notebook", "user_id": user_id}
+        {
+            "id": 3,
+            "name": "Notebook",
+            "description": "Notes",
+            "user_id": user_id,
+        }
     ]
 
     response = client.post(
@@ -408,7 +481,15 @@ def test_create_item_assigns_authenticated_owner(api):
     )
 
     assert response.status_code == 201
-    assert response.json()["author_id"] == user_id
+    assert response.json() == {
+        "data": {
+            "id": 3,
+            "name": "Notebook",
+            "description": "Notes",
+            "created_at": None,
+            "user_id": user_id,
+        }
+    }
     supabase.table.return_value.insert.assert_called_once_with(
         {"name": "Notebook", "description": "Notes", "user_id": user_id}
     )
@@ -429,6 +510,7 @@ def test_create_item_rejects_invalid_token(api):
     )
 
     assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
     supabase.table.assert_not_called()
 
 
@@ -445,6 +527,7 @@ def test_create_item_rejects_invalid_payload(api):
     )
 
     assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
     supabase.table.assert_not_called()
 
 
@@ -456,19 +539,60 @@ def test_update_item_only_targets_authenticated_owner(api):
         user=SimpleNamespace(id=user_id)
     )
     supabase.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value.data = [
-        {"id": item_id, "name": "Updated", "user_id": user_id}
+        {"id": item_id, "name": "Updated", "user_id": user_id, "description": None}
     ]
 
     response = client.put(
         f"/items/{item_id}",
         headers={"Authorization": "Bearer valid-token"},
-        json={"name": "Updated"},
+        json={"name": "Updated", "description": None},
     )
 
     assert response.status_code == 200
+    assert response.json()["data"]["name"] == "Updated"
+    assert response.json()["data"]["user_id"] == user_id
     first_filter = supabase.table.return_value.update.return_value.eq
+    supabase.table.return_value.update.assert_called_once_with(
+        {"name": "Updated", "description": None}
+    )
     first_filter.assert_called_once_with("id", item_id)
     first_filter.return_value.eq.assert_called_once_with("user_id", user_id)
+
+
+def test_patch_item_updates_only_provided_fields(api):
+    client, supabase = api
+    user_id = "user-123"
+    item_id = 8
+    headers = authenticate(supabase, user_id)
+    supabase.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value.data = [
+        {"id": item_id, "name": "Renamed", "user_id": user_id}
+    ]
+
+    response = client.patch(
+        f"/items/{item_id}",
+        headers=headers,
+        json={"name": "Renamed"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["id"] == item_id
+    assert response.json()["data"]["name"] == "Renamed"
+    supabase.table.return_value.update.assert_called_once_with({"name": "Renamed"})
+    filters = supabase.table.return_value.update.return_value.eq
+    filters.assert_called_once_with("id", item_id)
+    filters.return_value.eq.assert_called_once_with("user_id", user_id)
+
+
+@pytest.mark.parametrize("payload", [{}, {"name": None}, {"name": ""}])
+def test_patch_item_rejects_empty_or_invalid_patch(api, payload):
+    client, supabase = api
+    headers = authenticate(supabase)
+
+    response = client.patch("/items/8", headers=headers, json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    supabase.table.assert_not_called()
 
 
 def test_delete_item_only_targets_authenticated_owner(api):
@@ -479,7 +603,7 @@ def test_delete_item_only_targets_authenticated_owner(api):
         user=SimpleNamespace(id=user_id)
     )
     supabase.table.return_value.delete.return_value.eq.return_value.eq.return_value.execute.return_value.data = [
-        {"id": item_id, "user_id": user_id}
+        {"id": item_id, "name": "Notebook", "user_id": user_id}
     ]
 
     response = client.delete(
@@ -488,6 +612,7 @@ def test_delete_item_only_targets_authenticated_owner(api):
     )
 
     assert response.status_code == 200
+    assert response.json()["data"]["id"] == item_id
     first_filter = supabase.table.return_value.delete.return_value.eq
     first_filter.assert_called_once_with("id", item_id)
     first_filter.return_value.eq.assert_called_once_with("user_id", user_id)

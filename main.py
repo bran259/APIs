@@ -1,12 +1,16 @@
 import os
 import logging
 from dataclasses import dataclass
-from typing import NoReturn
+from datetime import datetime
+from typing import Literal, NoReturn
 from uuid import UUID
-from fastapi import FastAPI, HTTPException, Depends, Query, status
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import (
     AuthError,
     Client,
@@ -39,6 +43,143 @@ CORS_ORIGINS = [
 
 # Initialize the API app
 app = FastAPI()
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorDetail
+
+
+class ItemResponse(BaseModel):
+    id: int
+    name: str
+    description: str | None = None
+    created_at: datetime | None = None
+    user_id: str | None = None
+
+
+class ItemEnvelope(BaseModel):
+    data: ItemResponse
+
+
+class PaginationResponse(BaseModel):
+    limit: int
+    offset: int
+    next_offset: int | None
+
+
+class ItemCollectionResponse(BaseModel):
+    data: list[ItemResponse]
+
+
+class ItemPageResponse(ItemCollectionResponse):
+    pagination: PaginationResponse
+
+
+class UserSignupResponse(BaseModel):
+    message: str
+    user_id: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"]
+    user_id: str
+
+
+ERROR_RESPONSES = {
+    code: {"model": ErrorResponse}
+    for code in (400, 401, 403, 404, 405, 409, 422, 429, 500, 503)
+}
+
+
+ERROR_CODES = {
+    400: "bad_request",
+    401: "unauthorized",
+    403: "forbidden",
+    404: "not_found",
+    405: "method_not_allowed",
+    409: "conflict",
+    422: "validation_error",
+    429: "rate_limited",
+    500: "internal_server_error",
+    503: "service_unavailable",
+}
+
+
+@app.exception_handler(StarletteHTTPException)
+async def handle_http_exception(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
+    logger.debug(
+        "Handled HTTP error %s for %s %s",
+        exc.status_code,
+        request.method,
+        request.url.path,
+    )
+    message = (
+        exc.detail
+        if isinstance(exc.detail, str)
+        else "The request could not be completed."
+    )
+    body = ErrorResponse(
+        error=ErrorDetail(
+            code=ERROR_CODES.get(exc.status_code, "http_error"),
+            message=message,
+        )
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=body.model_dump(),
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_validation_error(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    logger.info(
+        "Request validation failed for %s %s (%d errors)",
+        request.method,
+        request.url.path,
+        len(exc.errors()),
+    )
+    body = ErrorResponse(
+        error=ErrorDetail(
+            code="validation_error",
+            message="Request validation failed.",
+        )
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=body.model_dump(),
+    )
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+    logger.error(
+        "Unhandled request error for %s %s",
+        request.method,
+        request.url.path,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    body = ErrorResponse(
+        error=ErrorDetail(
+            code="internal_server_error",
+            message="An unexpected error occurred.",
+        )
+    )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=body.model_dump(),
+    )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -158,6 +299,19 @@ class ItemCreate(BaseModel):
     description: str | None = Field(None, max_length=500)
 
 
+class ItemPatch(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = Field(None, max_length=500)
+
+    @model_validator(mode="after")
+    def require_patchable_fields(self):
+        if not self.model_fields_set:
+            raise ValueError("At least one item field must be provided.")
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("Item name cannot be null.")
+        return self
+
+
 @dataclass
 class AuthenticatedUser:
     id: str
@@ -204,7 +358,11 @@ def get_current_user(
 
 #GET
 # PROTECTED ROUTE: Read only the authenticated user's items
-@app.get("/items/")
+@app.get(
+    "/items/",
+    response_model=ItemPageResponse,
+    responses=ERROR_RESPONSES,
+)
 def read_all_items(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -216,15 +374,28 @@ def read_all_items(
             .select("*")
             .eq("user_id", current_user.id)
             .order("id")
-            .range(offset, offset + limit - 1)
+            .range(offset, offset + limit)
             .execute()
         )
-        return response.data
+        items = response.data[:limit]
+        next_offset = offset + limit if len(response.data) > limit else None
+        return {
+            "data": items,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "next_offset": next_offset,
+            },
+        }
     except Exception as exc:
         raise database_http_exception("read_all_items", exc) from exc
 
 # PROTECTED ROUTE: Read items belonging to the authenticated user
-@app.get("/items/user/{user_id}")
+@app.get(
+    "/items/user/{user_id}",
+    response_model=ItemCollectionResponse,
+    responses=ERROR_RESPONSES,
+)
 def read_user_items(
     user_id: UUID, current_user: AuthenticatedUser = Depends(get_current_user)
 ):
@@ -238,12 +409,16 @@ def read_user_items(
             .eq("user_id", current_user.id)
             .execute()
         )
-        return response.data
+        return {"data": response.data}
     except Exception as exc:
         raise database_http_exception("read_user_items", exc) from exc
 
 # PROTECTED ROUTE: Read a single item owned by the authenticated user
-@app.get("/items/{item_id}")
+@app.get(
+    "/items/{item_id}",
+    response_model=ItemEnvelope,
+    responses=ERROR_RESPONSES,
+)
 def read_single_item(
     item_id: int, current_user: AuthenticatedUser = Depends(get_current_user)
 ):
@@ -257,28 +432,40 @@ def read_single_item(
         )
         if not response.data:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
-        return response.data[0]
+        return {"data": response.data[0]}
     except HTTPException:
         raise
     except Exception as exc:
         raise database_http_exception("read_single_item", exc) from exc
     
 #  PUBLIC ROUTE: User Registration
-@app.post("/auth/signup", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/auth/signup",
+    status_code=status.HTTP_201_CREATED,
+    response_model=UserSignupResponse,
+    responses=ERROR_RESPONSES,
+)
 def sign_up(user: User):
     try:
         response = supabase.auth.sign_up({
             "email": user.email,
             "password": user.password
         })
-        return{"message": "Registartion succesful! Please check your email for confirmation.", "user_id": response.user.id}
+        return {
+            "message": "Registration successful! Please check your email for confirmation.",
+            "user_id": response.user.id,
+        }
     except AuthError as exc:
         raise authentication_http_exception(exc, "signup") from exc
     except Exception:
         service_unavailable("signup")
 
 #  PUBLIC ROUTE: User Login (Generates your access token)
-@app.post("/auth/login")
+@app.post(
+    "/auth/login",
+    response_model=LoginResponse,
+    responses=ERROR_RESPONSES,
+)
 def login(user: User):
     try:
         response = supabase.auth.sign_in_with_password({
@@ -301,7 +488,12 @@ def login(user: User):
 #POST endpoint using the Pydantic model for request validation
 #  PROTECTED ROUTE: Only accessible with a valid token
 # Notice: 'current_user' is added as a Dependency injection
-@app.post("/items/", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/items/",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ItemEnvelope,
+    responses=ERROR_RESPONSES,
+)
 def create_item(
     item: ItemCreate, current_user: AuthenticatedUser = Depends(get_current_user)
 ):
@@ -310,16 +502,16 @@ def create_item(
         item_data["user_id"] = current_user.id  # Automatically tie this item to the creator's ID
         
         response = current_user.database.table("items").insert(item_data).execute()
-        return {
-            "message": "Item successfully created by authenticated user!",
-            "author_id": current_user.id,
-            "data": response.data
-        }
+        return {"data": response.data[0]}
     except Exception as exc:
         raise database_http_exception("create_item", exc) from exc
 
 #PUT: Update an existing item by its ID
-@app.put("/items/{item_id}")
+@app.put(
+    "/items/{item_id}",
+    response_model=ItemEnvelope,
+    responses=ERROR_RESPONSES,
+)
 def update_item(
     item_id: int,
     item: ItemCreate,
@@ -338,17 +530,49 @@ def update_item(
                 status_code=status.HTTP_404_NOT_FOUND, 
                 detail="Item not found or you do not have permission to modify it"
             )
-        return {
-            "message": f"Item {item_id} successfully updated by its owner.",
-            "data": response.data
-        }
+        return {"data": response.data[0]}
     except HTTPException:
         raise
     except Exception as exc:
         raise database_http_exception("update_item", exc) from exc
-        
+
+
+@app.patch(
+    "/items/{item_id}",
+    response_model=ItemEnvelope,
+    responses=ERROR_RESPONSES,
+)
+def patch_item(
+    item_id: int,
+    item: ItemPatch,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
+    try:
+        response = (
+            current_user.database.table("items")
+            .update(item.model_dump(exclude_unset=True))
+            .eq("id", item_id)
+            .eq("user_id", current_user.id)
+            .execute()
+        )
+        if not response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Item not found or you do not have permission to modify it.",
+            )
+        return {"data": response.data[0]}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise database_http_exception("patch_item", exc) from exc
+
+
 # DELETE ROUTE: Remove an item by its ID
-@app.delete("/items/{item_id}")
+@app.delete(
+    "/items/{item_id}",
+    response_model=ItemEnvelope,
+    responses=ERROR_RESPONSES,
+)
 def delete_item(
     item_id: int, current_user: AuthenticatedUser = Depends(get_current_user)
 ):
@@ -361,10 +585,7 @@ def delete_item(
             .execute()
         if not response.data:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found or you do not have permission to delete it")
-        return {
-            "message": f"item {item_id} successfully deleted by user {current_user.id}",
-            "deleted_data": response.data
-        }
+        return {"data": response.data[0]}
     except HTTPException:
         raise
     except Exception as exc:
