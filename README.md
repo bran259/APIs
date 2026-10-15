@@ -14,6 +14,10 @@ The API validates each token with Supabase and uses that same token for database
 
 Existing item rows remain with `user_id = NULL` and are inaccessible through owner-only routes until their owners are assigned in Supabase. Item `id` values are numeric database IDs. Use the returned `id` (for example, `/items/2`) for single-item reads, updates, and deletes. The `user_id` owner value is a UUID.
 
+## CORS configuration
+
+CORS allows `http://localhost:3000` and `http://localhost:5173` by default as frontend development examples. Set `CORS_ORIGINS` to a comma-separated list of exact frontend origins when your frontend is running elsewhere, for example `CORS_ORIGINS=http://localhost:3000,https://app.example.com`. Include the scheme and port when applicable, and do not include URL paths or trailing slashes. Credentials remain enabled, but origins are never wildcarded.
+
 ## Error responses
 
 Invalid or expired bearer tokens return `401`; attempts to access another user's data return `403` or `404` without revealing whether a resource exists. Invalid request data returns `422`, and database conflicts return `409`. Unexpected Supabase/database failures return a generic `503` response; exception details are logged by the API and are not included in the response.

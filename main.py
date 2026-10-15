@@ -28,15 +28,21 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 #Initialize the Supabase Client
 supabase : Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:5173",
+    ).split(",")
+    if origin.strip()
+]
 
 # Initialize the API app
 app = FastAPI()
 
-# NEW: CORS Middleware Configuration
-# Change ["*"] to your specific frontend URL (e.g., ["https://myfrontend.com"]) 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

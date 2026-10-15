@@ -14,12 +14,56 @@ def app_module():
         {
             "SUPABASE_URL": "https://unit-test.supabase.co",
             "SUPABASE_KEY": "unit-test-key",
+            "CORS_ORIGINS": (
+                "http://localhost:3000,http://localhost:5173"
+                ",https://frontend.example.com"
+            ),
         },
     ):
         with patch("supabase.create_client", return_value=MagicMock()):
             import main
 
     return main
+
+
+def test_cors_allows_configured_frontend_origins(api):
+    client, _ = api
+
+    response = client.options(
+        "/items/",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_cors_rejects_unconfigured_origins(api):
+    client, _ = api
+
+    response = client.options(
+        "/items/",
+        headers={
+            "Origin": "https://unapproved.example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_cors_origins_are_loaded_from_environment(app_module):
+    assert app_module.CORS_ORIGINS == [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://frontend.example.com",
+    ]
 
 
 @pytest.fixture
