@@ -25,36 +25,64 @@ def app_module():
 def api(app_module, monkeypatch):
     supabase = MagicMock()
     monkeypatch.setattr(app_module, "supabase", supabase)
+    monkeypatch.setattr(
+        app_module, "create_user_database_client", lambda token: supabase
+    )
     return TestClient(app_module.app), supabase
+
+
+def authenticate(supabase, user_id="user-123"):
+    supabase.auth.get_user.return_value = SimpleNamespace(
+        user=SimpleNamespace(id=user_id)
+    )
+    return {"Authorization": "Bearer test-access-token"}
 
 
 def test_read_all_items(api):
     client, supabase = api
+    headers = authenticate(supabase)
     supabase.table.return_value.select.return_value.execute.return_value.data = [
         {"id": 1, "name": "Notebook"}
     ]
 
-    response = client.get("/items/")
+    response = client.get("/items/", headers=headers)
 
     assert response.status_code == 200
     assert response.json() == [{"id": 1, "name": "Notebook"}]
     supabase.table.assert_called_once_with("items")
+    supabase.table.return_value.select.return_value.eq.assert_called_once_with(
+        "user_id", "user-123"
+    )
 
 
 def test_read_user_items_filters_by_user_id(api):
     client, supabase = api
     user_id = "123e4567-e89b-12d3-a456-426614174000"
+    headers = authenticate(supabase, user_id)
     supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
         {"id": 1, "user_id": user_id, "name": "Notebook"}
     ]
 
-    response = client.get(f"/items/user/{user_id}")
+    response = client.get(f"/items/user/{user_id}", headers=headers)
 
     assert response.status_code == 200
     assert response.json()[0]["user_id"] == user_id
     supabase.table.return_value.select.return_value.eq.assert_called_once_with(
         "user_id", user_id
     )
+
+
+def test_read_user_items_rejects_another_users_id(api):
+    client, supabase = api
+    headers = authenticate(supabase)
+
+    response = client.get(
+        "/items/user/123e4567-e89b-12d3-a456-426614174000",
+        headers=headers,
+    )
+
+    assert response.status_code == 404
+    supabase.table.assert_not_called()
 
 
 def test_read_user_items_rejects_invalid_user_id(api):
@@ -68,26 +96,31 @@ def test_read_user_items_rejects_invalid_user_id(api):
 
 def test_read_single_item(api):
     client, supabase = api
+    headers = authenticate(supabase)
     item_id = 2
-    supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
+    supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = [
         {"id": item_id, "name": "Notebook"}
     ]
 
-    response = client.get(f"/items/{item_id}")
+    response = client.get(f"/items/{item_id}", headers=headers)
 
     assert response.status_code == 200
     assert response.json() == {"id": item_id, "name": "Notebook"}
     supabase.table.return_value.select.return_value.eq.assert_called_once_with(
         "id", item_id
     )
+    supabase.table.return_value.select.return_value.eq.return_value.eq.assert_called_once_with(
+        "user_id", "user-123"
+    )
 
 
 def test_read_single_item_returns_404_when_missing(api):
     client, supabase = api
+    headers = authenticate(supabase)
     item_id = 2
-    supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
+    supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
 
-    response = client.get(f"/items/{item_id}")
+    response = client.get(f"/items/{item_id}", headers=headers)
 
     assert response.status_code == 404
 

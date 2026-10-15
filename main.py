@@ -1,10 +1,11 @@
 import os
+from dataclasses import dataclass
 from uuid import UUID
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 from dotenv import load_dotenv
 
 load_dotenv()  # Load environment variables from .env file
@@ -44,13 +45,43 @@ class ItemCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
 
+
+@dataclass
+class AuthenticatedUser:
+    id: str
+    database: Client
+
+
+def create_user_database_client(token: str) -> Client:
+    client = create_client(
+        SUPABASE_URL,
+        SUPABASE_KEY,
+        options=ClientOptions(auto_refresh_token=False, persist_session=False),
+    )
+    client.postgrest.auth(token)
+    return client
+
+
 #  AUTH DEPENDENCY: Verifies incoming JWT with Supabase
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> AuthenticatedUser:
     token = credentials.credentials  # Extracts the clean text token
     try:
         # Ask Supabase to validate this token against its database
         user_response = supabase.auth.get_user(token)
-        return user_response.user  # Returns user profile if valid
+        if user_response.user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired authentication token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return AuthenticatedUser(
+            id=user_response.user.id,
+            database=create_user_database_client(token),
+        )
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -59,29 +90,52 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         )
 
 #GET
-#PUBLIC ROUTE: Read items
+# PROTECTED ROUTE: Read only the authenticated user's items
 @app.get("/items/")
-def read_all_items():
+def read_all_items(current_user: AuthenticatedUser = Depends(get_current_user)):
     try:
-        response = supabase.table("items").select("*").execute()
+        response = (
+            current_user.database.table("items")
+            .select("*")
+            .eq("user_id", current_user.id)
+            .execute()
+        )
         return response.data
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-# PUBLIC ROUTE: Read items belonging to a user
+# PROTECTED ROUTE: Read items belonging to the authenticated user
 @app.get("/items/user/{user_id}")
-def read_user_items(user_id: UUID):
+def read_user_items(
+    user_id: UUID, current_user: AuthenticatedUser = Depends(get_current_user)
+):
+    if str(user_id) != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
     try:
-        response = supabase.table("items").select("*").eq("user_id", str(user_id)).execute()
+        response = (
+            current_user.database.table("items")
+            .select("*")
+            .eq("user_id", current_user.id)
+            .execute()
+        )
         return response.data
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-# NEW: GET SINGLE ITEM (Public or Protected)
+# PROTECTED ROUTE: Read a single item owned by the authenticated user
 @app.get("/items/{item_id}")
-def read_single_item(item_id: int):
+def read_single_item(
+    item_id: int, current_user: AuthenticatedUser = Depends(get_current_user)
+):
     try:
-        response = supabase.table("items").select("*").eq("id", item_id).execute()
+        response = (
+            current_user.database.table("items")
+            .select("*")
+            .eq("id", item_id)
+            .eq("user_id", current_user.id)
+            .execute()
+        )
         if not response.data:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
         return response.data[0]
@@ -125,12 +179,14 @@ def login(user: User):
 #  PROTECTED ROUTE: Only accessible with a valid token
 # Notice: 'current_user' is added as a Dependency injection
 @app.post("/items/", status_code=status.HTTP_201_CREATED)
-def create_item(item: ItemCreate, current_user=Depends(get_current_user)):
+def create_item(
+    item: ItemCreate, current_user: AuthenticatedUser = Depends(get_current_user)
+):
     try:
         item_data = item.model_dump()  # Note: .dict() is deprecated in Pydantic v2, use .model_dump()
         item_data["user_id"] = current_user.id  # Automatically tie this item to the creator's ID
         
-        response = supabase.table("items").insert(item_data).execute()
+        response = current_user.database.table("items").insert(item_data).execute()
         return {
             "message": "Item successfully created by authenticated user!",
             "author_id": current_user.id,
@@ -141,10 +197,14 @@ def create_item(item: ItemCreate, current_user=Depends(get_current_user)):
 
 #PUT: Update an existing item by its ID
 @app.put("/items/{item_id}")
-def update_item(item_id: int, item: ItemCreate, current_user=Depends(get_current_user)):
+def update_item(
+    item_id: int,
+    item: ItemCreate,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
     try:
         # ENHANCED: We verify that the item's ID matches AND it belongs to the active logged-in user
-        response = supabase.table("items")\
+        response = current_user.database.table("items")\
             .update(item.model_dump())\
             .eq("id", item_id)\
             .eq("user_id", current_user.id)\
@@ -166,10 +226,12 @@ def update_item(item_id: int, item: ItemCreate, current_user=Depends(get_current
         
 # DELETE ROUTE: Remove an item by its ID
 @app.delete("/items/{item_id}")
-def delete_item(item_id: int, current_user=Depends(get_current_user)):
+def delete_item(
+    item_id: int, current_user: AuthenticatedUser = Depends(get_current_user)
+):
     try:
         #Delete the row where the 'id' column matches the path parameter
-        response = supabase.table("items")\
+        response = current_user.database.table("items")\
             .delete()\
             .eq("id", item_id)\
             .eq("user_id", current_user.id)\
