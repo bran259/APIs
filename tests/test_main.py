@@ -417,6 +417,34 @@ def test_sign_up(api):
     )
 
 
+@pytest.mark.parametrize(
+    "auth_response",
+    [
+        SimpleNamespace(user=None),
+        SimpleNamespace(user=SimpleNamespace(id=None)),
+        SimpleNamespace(user=SimpleNamespace(id="")),
+    ],
+)
+def test_sign_up_rejects_incomplete_auth_responses(api, caplog, auth_response):
+    client, supabase = api
+    supabase.auth.sign_up.return_value = auth_response
+
+    with caplog.at_level(logging.ERROR):
+        response = client.post(
+            "/auth/signup",
+            json={"email": "person@example.com", "password": "secure-pass"},
+        )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": {
+            "code": "bad_gateway",
+            "message": "The authentication service returned an invalid response.",
+        }
+    }
+    assert "Supabase returned an incomplete response for signup" in caplog.text
+
+
 def test_sign_up_rejects_invalid_email(api):
     client, supabase = api
 
@@ -448,6 +476,42 @@ def test_login(api):
         "token_type": "bearer",
         "user_id": "user-123",
     }
+
+
+@pytest.mark.parametrize(
+    "auth_response",
+    [
+        SimpleNamespace(session=None, user=SimpleNamespace(id="user-123")),
+        SimpleNamespace(
+            session=SimpleNamespace(access_token="token"),
+            user=None,
+        ),
+        SimpleNamespace(
+            session=SimpleNamespace(access_token=""),
+            user=SimpleNamespace(id="user-123"),
+        ),
+        SimpleNamespace(
+            session=SimpleNamespace(access_token="token"),
+            user=SimpleNamespace(id=""),
+        ),
+    ],
+)
+def test_login_rejects_incomplete_auth_responses(api, caplog, auth_response):
+    client, supabase = api
+    supabase.auth.sign_in_with_password.return_value = auth_response
+
+    with caplog.at_level(logging.ERROR):
+        response = client.post(
+            "/auth/login",
+            json={"email": "person@example.com", "password": "secure-pass"},
+        )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "bad_gateway"
+    assert (
+        "Supabase returned an incomplete response for login"
+        in caplog.text
+    )
 
 
 def test_create_item_requires_authentication(api):
@@ -531,6 +595,41 @@ def test_create_item_rejects_invalid_payload(api):
     supabase.table.assert_not_called()
 
 
+@pytest.mark.parametrize("name", [" ", "   ", "\t\n"])
+def test_create_item_rejects_whitespace_only_name(api, name):
+    client, supabase = api
+    headers = authenticate(supabase)
+
+    response = client.post(
+        "/items/",
+        headers=headers,
+        json={"name": name},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    supabase.table.assert_not_called()
+
+
+def test_create_item_trims_name(api):
+    client, supabase = api
+    headers = authenticate(supabase)
+    supabase.table.return_value.insert.return_value.execute.return_value.data = [
+        {"id": 3, "name": "Notebook", "user_id": "user-123"}
+    ]
+
+    response = client.post(
+        "/items/",
+        headers=headers,
+        json={"name": "  Notebook  "},
+    )
+
+    assert response.status_code == 201
+    supabase.table.return_value.insert.assert_called_once_with(
+        {"name": "Notebook", "description": None, "user_id": "user-123"}
+    )
+
+
 def test_update_item_only_targets_authenticated_owner(api):
     client, supabase = api
     user_id = "user-123"
@@ -559,6 +658,21 @@ def test_update_item_only_targets_authenticated_owner(api):
     first_filter.return_value.eq.assert_called_once_with("user_id", user_id)
 
 
+def test_put_item_rejects_whitespace_only_name(api):
+    client, supabase = api
+    headers = authenticate(supabase)
+
+    response = client.put(
+        "/items/3",
+        headers=headers,
+        json={"name": "   "},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    supabase.table.assert_not_called()
+
+
 def test_patch_item_updates_only_provided_fields(api):
     client, supabase = api
     user_id = "user-123"
@@ -583,7 +697,9 @@ def test_patch_item_updates_only_provided_fields(api):
     filters.return_value.eq.assert_called_once_with("user_id", user_id)
 
 
-@pytest.mark.parametrize("payload", [{}, {"name": None}, {"name": ""}])
+@pytest.mark.parametrize(
+    "payload", [{}, {"name": None}, {"name": ""}, {"name": "   "}]
+)
 def test_patch_item_rejects_empty_or_invalid_patch(api, payload):
     client, supabase = api
     headers = authenticate(supabase)

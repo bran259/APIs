@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import (
     AuthError,
@@ -93,7 +93,7 @@ class LoginResponse(BaseModel):
 
 ERROR_RESPONSES = {
     code: {"model": ErrorResponse}
-    for code in (400, 401, 403, 404, 405, 409, 422, 429, 500, 503)
+    for code in (400, 401, 403, 404, 405, 409, 422, 429, 500, 502, 503)
 }
 
 
@@ -107,6 +107,7 @@ ERROR_CODES = {
     422: "validation_error",
     429: "rate_limited",
     500: "internal_server_error",
+    502: "bad_gateway",
     503: "service_unavailable",
 }
 
@@ -298,10 +299,28 @@ class ItemCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
 
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Item name cannot be blank.")
+        return value
+
 
 class ItemPatch(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("Item name cannot be blank.")
+        return value
 
     @model_validator(mode="after")
     def require_patchable_fields(self):
@@ -316,6 +335,14 @@ class ItemPatch(BaseModel):
 class AuthenticatedUser:
     id: str
     database: Client
+
+
+def invalid_auth_service_response(operation: str) -> HTTPException:
+    logger.error("Supabase returned an incomplete response for %s", operation)
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="The authentication service returned an invalid response.",
+    )
 
 
 def create_user_database_client(token: str) -> Client:
@@ -451,10 +478,16 @@ def sign_up(user: User):
             "email": user.email,
             "password": user.password
         })
+        auth_user = getattr(response, "user", None)
+        user_id = getattr(auth_user, "id", None)
+        if not isinstance(user_id, str) or not user_id.strip():
+            raise invalid_auth_service_response("signup")
         return {
             "message": "Registration successful! Please check your email for confirmation.",
-            "user_id": response.user.id,
+            "user_id": user_id,
         }
+    except HTTPException:
+        raise
     except AuthError as exc:
         raise authentication_http_exception(exc, "signup") from exc
     except Exception:
@@ -472,12 +505,24 @@ def login(user: User):
             "email": user.email,
             "password": user.password
         })
-          # This access_token is what your frontend uses to make secure API calls
+        session = getattr(response, "session", None)
+        access_token = getattr(session, "access_token", None)
+        auth_user = getattr(response, "user", None)
+        user_id = getattr(auth_user, "id", None)
+        if (
+            not isinstance(access_token, str)
+            or not access_token.strip()
+            or not isinstance(user_id, str)
+            or not user_id.strip()
+        ):
+            raise invalid_auth_service_response("login")
         return {
-            "access_token": response.session.access_token,
+            "access_token": access_token,
             "token_type": "bearer",
-            "user_id": response.user.id
+            "user_id": user_id
         }
+    except HTTPException:
+        raise
     except AuthError as exc:
         raise authentication_http_exception(exc, "login") from exc
     except Exception:

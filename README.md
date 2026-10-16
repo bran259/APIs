@@ -14,7 +14,7 @@ The API validates each token with Supabase and uses that same token for database
 
 `GET /items/` accepts `limit` and `offset` query parameters for pagination. The default page size is 50; limits must be between 1 and 100, and offset must be non-negative. Results are ordered by item ID and returned as `{"data": [...], "pagination": {"limit": 20, "offset": 0, "next_offset": 20}}`. Follow `next_offset` to fetch the next page; it is `null` when there are no more results.
 
-Item read and write endpoints return item payloads in a `data` envelope. `PUT /items/{item_id}` remains a full replacement and requires `name`; omitted `description` is reset to `null`. Use `PATCH /items/{item_id}` to update only the provided `name` and/or `description` fields. Empty patches and `null` names are rejected. Validation and HTTP errors use `{"error": {"code": "...", "message": "..."}}`.
+Item read and write endpoints return item payloads in a `data` envelope. `PUT /items/{item_id}` remains a full replacement and requires `name`; omitted `description` is reset to `null`. Use `PATCH /items/{item_id}` to update only the provided `name` and/or `description` fields. Empty patches and `null` names are rejected. Item names are trimmed and cannot be empty or whitespace-only. Signup/login return `502` with a safe error if Supabase omits the user ID or, for login, the session access token. Validation and HTTP errors use `{"error": {"code": "...", "message": "..."}}`.
 
 Existing item rows remain with `user_id = NULL` and are inaccessible through owner-only routes until their owners are assigned in Supabase. Item `id` values are numeric database IDs. Use the returned `id` (for example, `/items/2`) for single-item reads, updates, and deletes. The `user_id` owner value is a UUID.
 
@@ -24,7 +24,7 @@ CORS allows `http://localhost:3000` and `http://localhost:5173` by default as fr
 
 ## Error responses
 
-Invalid or expired bearer tokens return `401`; attempts to access another user's data return `403` or `404` without revealing whether a resource exists. Invalid request data returns `422`, and database conflicts return `409`. All error responses use the same `error.code` and `error.message` shape. Unexpected Supabase/database failures return a generic `503` response; exception details are logged by the API and are not included in the response.
+Invalid or expired bearer tokens return `401`; attempts to access another user's data return `403` or `404` without revealing whether a resource exists. Invalid request data returns `422`, database conflicts return `409`, and malformed responses from Supabase Auth return `502`. All error responses use the same `error.code` and `error.message` shape. Unexpected Supabase/database failures return a generic `503` response; exception details are logged by the API and are not included in the response.
 
 ## Tests
 
