@@ -83,6 +83,25 @@ Then verify the deployed API using **two test accounts**:
 
 Send tokens only in the `Authorization: Bearer <token>` header. Do not put real credentials or tokens in source control, screenshots, logs, or shared chat. The repository's automated tests mock Supabase; they do not replace this live project check.
 
+### Run the Supabase integration check
+
+`tests/integration/test_supabase_rls.py` is a separate opt-in test that connects directly to Supabase Auth and PostgREST with two ordinary test users. It verifies that each user can create, read, update, and delete their own items, and that one user cannot read, update, delete, or create rows as the other user. This exercises the live schema and RLS policies rather than the API's owner filters.
+
+Use a **disposable Supabase project**, never production. Apply the three migration files above to that project first (the check tests the resulting schema and policies; it does not apply SQL migrations). Create two confirmed email/password test users in that project and set the following environment variables in the test shell. Use the project's publishable/anon key only; do not use a service-role key.
+
+```powershell
+$env:SUPABASE_INTEGRATION_URL = "https://<project-ref>.supabase.co"
+$env:SUPABASE_INTEGRATION_PROJECT_REF = "<project-ref>"
+$env:SUPABASE_INTEGRATION_ANON_KEY = "<publishable-or-anon-key>"
+$env:SUPABASE_INTEGRATION_USER_A_EMAIL = "<confirmed-test-user-a-email>"
+$env:SUPABASE_INTEGRATION_USER_A_PASSWORD = "<test-user-a-password>"
+$env:SUPABASE_INTEGRATION_USER_B_EMAIL = "<confirmed-test-user-b-email>"
+$env:SUPABASE_INTEGRATION_USER_B_PASSWORD = "<test-user-b-password>"
+python -m pytest -q tests/integration/test_supabase_rls.py
+```
+
+The project reference must match the URL host; the test skips if no integration settings are provided and fails on partial or mismatched configuration. Test rows use unique names and are deleted during cleanup. Verify the disposable project is empty of test rows afterward, and delete the temporary test accounts when finished. Do not store these environment variables in source control or CI logs. Running the migration SQL a second time before this check also verifies the migrations' intended rerunnable behavior.
+
 ### Deploy
 
 1. Configure the deployment's secret/environment-variable settings with `SUPABASE_URL`, `SUPABASE_KEY`, and `CORS_ORIGINS`. Use the same Supabase project where you applied the migrations. `CORS_ORIGINS` must contain the deployed frontend's exact origin(s), including scheme and any non-default port; do not use `*`.
