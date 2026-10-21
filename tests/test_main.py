@@ -130,6 +130,7 @@ def api(app_module, monkeypatch):
     monkeypatch.setattr(
         app_module, "create_user_database_client", lambda token: supabase
     )
+    monkeypatch.setattr(app_module, "auth_rate_limiter", app_module.AuthRateLimiter())
     return TestClient(app_module.app), supabase
 
 
@@ -306,7 +307,7 @@ def test_login_invalid_credentials_are_safe(api):
 
     response = client.post(
         "/auth/login",
-        json={"email": "person@example.com", "password": "secure-pass"},
+        json={"email": "person@example.com", "password": "secure-pass1"},
     )
 
     assert response.status_code == 401
@@ -323,7 +324,7 @@ def test_unexpected_signup_error_is_safe_and_logged(api, caplog):
     with caplog.at_level(logging.ERROR):
         response = client.post(
             "/auth/signup",
-            json={"email": "person@example.com", "password": "secure-pass"},
+            json={"email": "person@example.com", "password": "secure-pass1"},
         )
 
     assert response.status_code == 503
@@ -504,14 +505,57 @@ def test_sign_up(api):
 
     response = client.post(
         "/auth/signup",
-        json={"email": "person@example.com", "password": "secure-pass"},
+        json={"email": "person@example.com", "password": "secure-pass1"},
     )
 
     assert response.status_code == 201
     assert response.json()["user_id"] == "user-123"
     supabase.auth.sign_up.assert_called_once_with(
-        {"email": "person@example.com", "password": "secure-pass"}
+        {"email": "person@example.com", "password": "secure-pass1"}
     )
+
+
+def test_sign_up_rate_limit_is_per_client_and_returns_retry_after(api):
+    client, supabase = api
+    supabase.auth.sign_up.return_value = SimpleNamespace(
+        user=SimpleNamespace(id="user-123")
+    )
+
+    responses = [
+        client.post(
+            "/auth/signup",
+            headers={"X-Forwarded-For": f"198.51.100.{attempt}"},
+            json={"email": f"person{attempt}@example.com", "password": "secure-pass1"},
+        )
+        for attempt in range(1, 7)
+    ]
+
+    assert [response.status_code for response in responses] == [
+        201, 201, 201, 201, 201, 429
+    ]
+    assert responses[-1].json()["error"]["code"] == "rate_limited"
+    assert int(responses[-1].headers["retry-after"]) > 0
+    assert supabase.auth.sign_up.call_count == 5
+
+
+def test_login_rate_limit_allows_ten_attempts_per_minute(api):
+    client, supabase = api
+    supabase.auth.sign_in_with_password.return_value = SimpleNamespace(
+        session=SimpleNamespace(access_token="test-access-token"),
+        user=SimpleNamespace(id="user-123"),
+    )
+
+    responses = [
+        client.post(
+            "/auth/login",
+            json={"email": "person@example.com", "password": "secure-pass1"},
+        )
+        for _ in range(11)
+    ]
+
+    assert [response.status_code for response in responses] == [200] * 10 + [429]
+    assert responses[-1].json()["error"]["code"] == "rate_limited"
+    assert supabase.auth.sign_in_with_password.call_count == 10
 
 
 @pytest.mark.parametrize(
@@ -529,7 +573,7 @@ def test_sign_up_rejects_incomplete_auth_responses(api, caplog, auth_response):
     with caplog.at_level(logging.ERROR):
         response = client.post(
             "/auth/signup",
-            json={"email": "person@example.com", "password": "secure-pass"},
+            json={"email": "person@example.com", "password": "secure-pass1"},
         )
 
     assert response.status_code == 502
@@ -547,12 +591,41 @@ def test_sign_up_rejects_invalid_email(api):
 
     response = client.post(
         "/auth/signup",
-        json={"email": "not-an-email", "password": "secure-pass"},
+        json={"email": "not-an-email", "password": "secure-pass1"},
     )
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
     supabase.auth.sign_up.assert_not_called()
+
+
+def test_sign_up_rejects_password_below_production_minimum(api):
+    client, supabase = api
+
+    response = client.post(
+        "/auth/signup",
+        json={"email": "person@example.com", "password": "12345678901"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    supabase.auth.sign_up.assert_not_called()
+
+
+def test_login_still_accepts_legacy_passwords(api):
+    client, supabase = api
+    supabase.auth.sign_in_with_password.return_value = SimpleNamespace(
+        session=SimpleNamespace(access_token="test-access-token"),
+        user=SimpleNamespace(id="user-123"),
+    )
+
+    response = client.post(
+        "/auth/login",
+        json={"email": "person@example.com", "password": "123456"},
+    )
+
+    assert response.status_code == 200
+    supabase.auth.sign_in_with_password.assert_called_once()
 
 
 def test_login(api):
@@ -564,7 +637,7 @@ def test_login(api):
 
     response = client.post(
         "/auth/login",
-        json={"email": "person@example.com", "password": "secure-pass"},
+        json={"email": "person@example.com", "password": "secure-pass1"},
     )
 
     assert response.status_code == 200
@@ -600,7 +673,7 @@ def test_login_rejects_incomplete_auth_responses(api, caplog, auth_response):
     with caplog.at_level(logging.ERROR):
         response = client.post(
             "/auth/login",
-            json={"email": "person@example.com", "password": "secure-pass"},
+            json={"email": "person@example.com", "password": "secure-pass1"},
         )
 
     assert response.status_code == 502

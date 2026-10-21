@@ -1,7 +1,11 @@
 import os
 import logging
+import math
+import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+from threading import Lock
 from typing import Literal, NoReturn
 from uuid import UUID
 from fastapi import FastAPI, HTTPException, Depends, Query, Request, status
@@ -22,6 +26,41 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Load environment variables from .env file
 logger = logging.getLogger(__name__)
+
+
+class AuthRateLimiter:
+    def __init__(self):
+        self._requests: dict[str, deque[float]] = {}
+        self._last_cleanup = 0.0
+        self._lock = Lock()
+
+    def check(
+        self, key: str, limit: int, window_seconds: int = 60
+    ) -> int | None:
+        now = time.monotonic()
+        window_start = now - window_seconds
+        with self._lock:
+            if now - self._last_cleanup >= window_seconds:
+                for bucket_key, requests in list(self._requests.items()):
+                    while requests and requests[0] <= window_start:
+                        requests.popleft()
+                    if not requests:
+                        del self._requests[bucket_key]
+                self._last_cleanup = now
+
+            requests = self._requests.setdefault(key, deque())
+            while requests and requests[0] <= window_start:
+                requests.popleft()
+            if len(requests) >= limit:
+                return max(1, math.ceil(requests[0] + window_seconds - now))
+
+            requests.append(now)
+            return None
+
+
+auth_rate_limiter = AuthRateLimiter()
+AUTH_RATE_LIMITS = {"signup": 5, "login": 10}
+AUTH_RATE_LIMIT_WINDOW_SECONDS = 60
 
 #Securely load the keys (.env file)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -316,7 +355,12 @@ def service_unavailable(operation: str) -> NoReturn:
 class User(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6)
-    
+
+
+class SignupRequest(User):
+    password: str = Field(..., min_length=12)
+
+
 class ItemCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
@@ -365,6 +409,22 @@ def invalid_auth_service_response(operation: str) -> HTTPException:
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="The authentication service returned an invalid response.",
     )
+
+
+def enforce_auth_rate_limit(request: Request, operation: str) -> None:
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = auth_rate_limiter.check(
+        f"{operation}:{client_ip}",
+        AUTH_RATE_LIMITS[operation],
+        AUTH_RATE_LIMIT_WINDOW_SECONDS,
+    )
+    if retry_after is not None:
+        logger.warning("Rate limit exceeded for authentication operation %s", operation)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many authentication requests. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
 
 
 def create_user_database_client(token: str) -> Client:
@@ -508,7 +568,8 @@ def read_single_item(
     response_model=UserSignupResponse,
     responses=ERROR_RESPONSES,
 )
-def sign_up(user: User):
+def sign_up(user: SignupRequest, request: Request):
+    enforce_auth_rate_limit(request, "signup")
     try:
         response = supabase.auth.sign_up({
             "email": user.email,
@@ -535,7 +596,8 @@ def sign_up(user: User):
     response_model=LoginResponse,
     responses=ERROR_RESPONSES,
 )
-def login(user: User):
+def login(user: User, request: Request):
+    enforce_auth_rate_limit(request, "login")
     try:
         response = supabase.auth.sign_in_with_password({
             "email": user.email,

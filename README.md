@@ -39,6 +39,18 @@ Before starting the deployed API, open the Supabase project's SQL Editor and run
 
 The last migration enables RLS and recreates its four named policies, so it is safe to re-run. Existing rows with a `NULL` `user_id` remain inaccessible through owner-only routes until you assign their owners.
 
+### Production Supabase Auth and abuse protection
+
+Use these production policies in the Supabase Dashboard's Auth settings:
+
+- Set the minimum password length to **12 characters**. The API enforces this for signup; login still accepts passwords of 6 or more characters so existing accounts can sign in and change weaker passwords.
+- **Require email confirmation** before a new account can sign in. Configure production SMTP and the allowed redirect URLs so confirmation messages can be delivered and safely return users to the frontend.
+- Keep Supabase Auth's own request/email rate limits enabled and configure CAPTCHA for public sign-up if your deployment needs stronger bot protection.
+
+The API also applies a sliding-window limit per client IP: **5 signups per minute** and **10 login attempts per minute**. Excess requests receive the standard `429` error and a `Retry-After` header. This limiter is in process memory, so it is an additional control for a single API process, not a shared counter. In production, configure the HTTPS gateway/load balancer/WAF to enforce at least the same per-IP limits across all workers and replicas. Ensure the gateway strips and replaces incoming forwarded-IP headers, and configure Uvicorn to trust only that gateway's known IPs; otherwise clients may spoof their rate-limit identity. Alert on sustained `429` spikes without logging request bodies, passwords, or tokens.
+
+These Auth settings are project-level and cannot be applied or verified from this repository. Set and verify them in the Supabase project before production deployment.
+
 ### Verify RLS and owner isolation
 
 After applying the migrations, run this in the Supabase SQL Editor to verify that RLS is enabled and all four policies exist:
