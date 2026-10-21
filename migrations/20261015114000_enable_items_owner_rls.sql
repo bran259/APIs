@@ -1,5 +1,10 @@
 ALTER TABLE public.items ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read their own items" ON public.items;
+DROP POLICY IF EXISTS "Users can create their own items" ON public.items;
+DROP POLICY IF EXISTS "Users can update their own items" ON public.items;
+DROP POLICY IF EXISTS "Users can delete their own items" ON public.items;
+
 CREATE POLICY "Users can read their own items"
 ON public.items
 FOR SELECT

@@ -37,7 +37,39 @@ Before starting the deployed API, open the Supabase project's SQL Editor and run
 2. `20261012154000_add_items_user_id.sql`
 3. `20261015114000_enable_items_owner_rls.sql`
 
-The last migration creates RLS policies and is not safe to run repeatedly as-is. Keep track of applied migrations and do not re-run it after successful application. Existing rows with a `NULL` `user_id` remain inaccessible through owner-only routes until you assign their owners.
+The last migration enables RLS and recreates its four named policies, so it is safe to re-run. Existing rows with a `NULL` `user_id` remain inaccessible through owner-only routes until you assign their owners.
+
+### Verify RLS and owner isolation
+
+After applying the migrations, run this in the Supabase SQL Editor to verify that RLS is enabled and all four policies exist:
+
+```sql
+SELECT
+    c.relrowsecurity AS rls_enabled,
+    p.polname,
+    p.polcmd,
+    pg_get_expr(p.polqual, p.polrelid) AS using_expression,
+    pg_get_expr(p.polwithcheck, p.polrelid) AS check_expression
+FROM pg_class AS c
+JOIN pg_namespace AS n ON n.oid = c.relnamespace
+LEFT JOIN pg_policy AS p ON p.polrelid = c.oid
+WHERE n.nspname = 'public'
+  AND c.relname = 'items'
+ORDER BY p.polname;
+```
+
+Confirm `rls_enabled` is `true` and the results include the read, create, update, and delete policies. Each policy must compare `auth.uid()` with `user_id`; update must constrain both the existing row and the new row.
+
+Then verify the deployed API using **two test accounts**:
+
+1. Sign up and log in as test user A; save A's access token locally. Create an item as A and record its returned item ID.
+2. Sign up and log in as test user B; save B's access token locally.
+3. With A's token, confirm `GET /items/{item_id}` returns the item. With B's token, confirm that same request returns `404`.
+4. With B's token, try `PUT`, `PATCH`, and `DELETE` on A's item ID. Each must return `404`, and the item must still be readable with A's token afterward.
+5. Confirm B's `GET /items/` does not include A's item, and that B can create, read, update, and delete B's own test item.
+6. Delete any remaining test data and accounts when done.
+
+Send tokens only in the `Authorization: Bearer <token>` header. Do not put real credentials or tokens in source control, screenshots, logs, or shared chat. The repository's automated tests mock Supabase; they do not replace this live project check.
 
 ### Deploy
 
