@@ -309,18 +309,71 @@ def test_read_user_items_filters_by_user_id(api):
     client, supabase = api
     user_id = "123e4567-e89b-12d3-a456-426614174000"
     headers = authenticate(supabase, user_id)
-    supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
+    supabase.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = [
         {"id": 1, "user_id": user_id, "name": "Notebook"}
     ]
 
     response = client.get(f"/items/user/{user_id}", headers=headers)
 
     assert response.status_code == 200
-    assert response.json()["data"][0]["name"] == "Notebook"
-    assert response.json()["data"][0]["user_id"] == user_id
+    assert response.json() == {
+        "data": [
+            {
+                "id": 1,
+                "name": "Notebook",
+                "description": None,
+                "created_at": None,
+                "user_id": user_id,
+            }
+        ],
+        "pagination": {"limit": 50, "offset": 0, "next_offset": None},
+    }
     supabase.table.return_value.select.return_value.eq.assert_called_once_with(
         "user_id", user_id
     )
+    query = supabase.table.return_value.select.return_value.eq.return_value
+    query.order.assert_called_once_with("id")
+    query.order.return_value.range.assert_called_once_with(0, 50)
+
+
+def test_read_user_items_returns_requested_page(api):
+    client, supabase = api
+    user_id = "123e4567-e89b-12d3-a456-426614174000"
+    headers = authenticate(supabase, user_id)
+    supabase.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = [
+        {"id": 3, "user_id": user_id, "name": "Third"},
+        {"id": 4, "user_id": user_id, "name": "Fourth"},
+        {"id": 5, "user_id": user_id, "name": "Fifth"},
+    ]
+
+    response = client.get(
+        f"/items/user/{user_id}?limit=2&offset=2",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["data"]] == [3, 4]
+    assert response.json()["pagination"] == {
+        "limit": 2,
+        "offset": 2,
+        "next_offset": 4,
+    }
+    query = supabase.table.return_value.select.return_value.eq.return_value
+    query.order.assert_called_once_with("id")
+    query.order.return_value.range.assert_called_once_with(2, 4)
+
+
+@pytest.mark.parametrize("query", ["limit=0", "limit=101", "offset=-1"])
+def test_read_user_items_rejects_invalid_pagination(api, query):
+    client, supabase = api
+    user_id = "123e4567-e89b-12d3-a456-426614174000"
+    headers = authenticate(supabase, user_id)
+
+    response = client.get(f"/items/user/{user_id}?{query}", headers=headers)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    supabase.table.assert_not_called()
 
 
 def test_read_user_items_rejects_another_users_id(api):

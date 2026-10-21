@@ -420,11 +420,14 @@ def read_all_items(
 # PROTECTED ROUTE: Read items belonging to the authenticated user
 @app.get(
     "/items/user/{user_id}",
-    response_model=ItemCollectionResponse,
+    response_model=ItemPageResponse,
     responses=ERROR_RESPONSES,
 )
 def read_user_items(
-    user_id: UUID, current_user: AuthenticatedUser = Depends(get_current_user)
+    user_id: UUID,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user: AuthenticatedUser = Depends(get_current_user),
 ):
     if str(user_id) != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -434,9 +437,20 @@ def read_user_items(
             current_user.database.table("items")
             .select("*")
             .eq("user_id", current_user.id)
+            .order("id")
+            .range(offset, offset + limit)
             .execute()
         )
-        return {"data": response.data}
+        items = response.data[:limit]
+        next_offset = offset + limit if len(response.data) > limit else None
+        return {
+            "data": items,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "next_offset": next_offset,
+            },
+        }
     except Exception as exc:
         raise database_http_exception("read_user_items", exc) from exc
 

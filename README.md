@@ -94,11 +94,11 @@ Database setup is tracked in the `migrations/` directory. Run the SQL files in t
 2. [`20261012154000_add_items_user_id.sql`](./migrations/20261012154000_add_items_user_id.sql) adds a nullable UUID `user_id` reference to `auth.users` and an index for lookups.
 3. [`20261015114000_enable_items_owner_rls.sql`](./migrations/20261015114000_enable_items_owner_rls.sql) enables row-level security and adds policies that allow authenticated users to read and change only their own items.
 
-Run migrations in timestamp order. All `/items/` routes require a valid bearer access token. Collection and single-item reads are restricted to the authenticated owner. `GET /items/user/{user_id}` is retained for compatibility, but returns 404 unless `{user_id}` matches the authenticated user.
+Run migrations in timestamp order. All `/items/` routes require a valid bearer access token. Collection and single-item reads are restricted to the authenticated owner. `GET /items/user/{user_id}` is retained for compatibility, returns 404 unless `{user_id}` matches the authenticated user, and uses the same pagination as `GET /items/`.
 
 The API validates each token with Supabase and uses that same token for database requests, so the database policies apply to API calls as well. The API also filters reads, updates, and deletes by the authenticated user's ID.
 
-`GET /items/` accepts `limit` and `offset` query parameters for pagination. The default page size is 50; limits must be between 1 and 100, and offset must be non-negative. Results are ordered by item ID and returned as `{"data": [...], "pagination": {"limit": 20, "offset": 0, "next_offset": 20}}`. Follow `next_offset` to fetch the next page; it is `null` when there are no more results.
+`GET /items/` and `GET /items/user/{user_id}` accept `limit` and `offset` query parameters for pagination. The default page size is 50; limits must be between 1 and 100, and offset must be non-negative. Results are ordered by item ID and returned as `{"data": [...], "pagination": {"limit": 20, "offset": 0, "next_offset": 20}}`. Follow `next_offset` to fetch the next page; it is `null` when there are no more results.
 
 Item read and write endpoints return item payloads in a `data` envelope. `PUT /items/{item_id}` remains a full replacement and requires `name`; omitted `description` is reset to `null`. Use `PATCH /items/{item_id}` to update only the provided `name` and/or `description` fields. Empty patches and `null` names are rejected. Item names are trimmed and cannot be empty or whitespace-only. Signup/login return `502` with a safe error if Supabase omits the user ID or, for login, the session access token. Validation and HTTP errors use `{"error": {"code": "...", "message": "..."}}`.
 
