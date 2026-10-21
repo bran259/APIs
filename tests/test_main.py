@@ -79,6 +79,50 @@ def test_openapi_documents_response_and_error_models(api):
     ]["$ref"] == "#/components/schemas/ErrorResponse"
 
 
+def test_health_live_does_not_check_supabase(api):
+    client, supabase = api
+
+    response = client.get("/health/live")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    supabase.table.assert_not_called()
+
+
+def test_health_ready_checks_database_without_returning_rows(api):
+    client, supabase = api
+
+    response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+    supabase.table.assert_called_once_with("items")
+    supabase.table.return_value.select.assert_called_once_with("id")
+    supabase.table.return_value.select.return_value.limit.assert_called_once_with(0)
+    supabase.table.return_value.select.return_value.limit.return_value.execute.assert_called_once_with()
+
+
+def test_health_ready_logs_database_failure_and_returns_safe_error(api, caplog):
+    client, supabase = api
+    supabase.table.return_value.select.return_value.limit.return_value.execute.side_effect = (
+        RuntimeError("private database details")
+    )
+
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "error": {
+            "code": "service_unavailable",
+            "message": "A required service is temporarily unavailable.",
+        }
+    }
+    assert "private database details" not in response.text
+    assert "Supabase operation readiness_check failed" in caplog.text
+    assert "private database details" in caplog.text
+
+
 @pytest.fixture
 def api(app_module, monkeypatch):
     supabase = MagicMock()

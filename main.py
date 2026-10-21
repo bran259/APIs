@@ -91,6 +91,10 @@ class LoginResponse(BaseModel):
     user_id: str
 
 
+class HealthResponse(BaseModel):
+    status: Literal["ok", "ready"]
+
+
 ERROR_RESPONSES = {
     code: {"model": ErrorResponse}
     for code in (400, 401, 403, 404, 405, 409, 422, 429, 500, 502, 503)
@@ -192,6 +196,24 @@ app.add_middleware(
 
 #FastAPI security scheme to extract the "Bearer <token>" header
 security = HTTPBearer()
+
+
+@app.get("/health/live", response_model=HealthResponse)
+def health_live():
+    return {"status": "ok"}
+
+
+@app.get(
+    "/health/ready",
+    response_model=HealthResponse,
+    responses={503: {"model": ErrorResponse}},
+)
+def health_ready():
+    try:
+        supabase.table("items").select("id").limit(0).execute()
+    except Exception:
+        service_unavailable("readiness_check")
+    return {"status": "ready"}
 
 
 def database_http_exception(operation: str, exc: Exception) -> HTTPException:

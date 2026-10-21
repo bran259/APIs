@@ -84,6 +84,13 @@ Send tokens only in the `Authorization: Bearer <token>` header. Do not put real 
    Configure the platform to provide `PORT` (commonly `8000` if it requires an explicit value). Do not use `--reload` in production. Serve the app behind the platform's HTTPS/reverse-proxy layer.
 4. Confirm the deployment starts successfully, then check `/docs` and make an authenticated request to verify Supabase connectivity and the applied owner RLS policies.
 
+### Health checks, logs, and alerts
+
+- Configure the platform's **liveness** probe as `GET /health/live`. It returns `200` while the app process is responding and intentionally does not depend on Supabase.
+- Configure its **readiness** probe as `GET /health/ready`. It performs a zero-row query against `public.items`, returning `200` only when the Supabase REST/database path and table are reachable; failures return a generic `503`. It does not validate user authentication or replace the two-account RLS verification above.
+- Use the platform's application log collection for the Uvicorn stdout/stderr streams. Unexpected application errors and Supabase/database failures include an error log with a traceback; expected client errors are not logged as server failures. Do not enable request-header/body logging for Authorization headers, passwords, or tokens.
+- Create platform alerts for sustained readiness failures, elevated HTTP `5xx` rates, and recurring log messages such as `Database operation ... failed`, `Supabase operation ... failed`, and `Unhandled request error`. Choose the evaluation window and notification destination in your hosting platform; investigate Supabase status and deployment changes when they fire. Alert separately on unusual authentication failure or rate-limit spikes, but avoid paging on individual `401` responses.
+
 Never commit `.env` or real credentials. `.env` and other `.env.*` files are ignored by Git; `.env.example` contains placeholders only. The repository previously tracked `.env`, so removing it from the current Git tree does **not** remove credentials from earlier commits. If that file ever contained real credentials, rotate the Supabase key in the Supabase dashboard and update your local/deployment secrets.
 
 ## Supabase item ownership
