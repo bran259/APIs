@@ -1,6 +1,8 @@
 const PAGE_SIZE = 10;
 const AUTH_TOKEN_KEY = "things.accessToken";
 const USER_EMAIL_KEY = "things.userEmail";
+const API_TIMEOUT_MS = 15000;
+const SLOW_AUTH_REQUEST_MS = 5000;
 
 const state = {
   mode: "login",
@@ -36,10 +38,11 @@ function setNotice(element, message = "", isError = false) {
 }
 
 function setBusy(button, busy, label) {
+  const wasDisabled = button.disabled;
   button.disabled = busy;
   const text = button.querySelector("span");
   if (busy) {
-    button.dataset.idleLabel = text?.textContent ?? button.textContent;
+    if (!wasDisabled) button.dataset.idleLabel = text?.textContent ?? button.textContent;
     if (text) text.textContent = label;
     else button.textContent = label;
   } else {
@@ -54,10 +57,19 @@ async function api(path, options = {}) {
   if (token()) headers.set("Authorization", `Bearer ${token()}`);
 
   let response;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
-    response = await fetch(path, { ...options, headers });
+    response = await fetch(path, { ...options, headers, signal: controller.signal });
   } catch {
+    if (controller.signal.aborted) {
+      throw new Error(
+        "The service took too long to respond. Check that the API and Supabase are available, then try again.",
+      );
+    }
     throw new Error("Could not reach the service. Check your connection and try again.");
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 
   const body = await response.json().catch(() => null);
@@ -248,6 +260,9 @@ authForm.addEventListener("submit", async (event) => {
   const signup = state.mode === "signup";
   state.busy = true;
   setBusy(button, true, signup ? "Creating your account..." : "Signing in...");
+  const slowRequestTimer = window.setTimeout(() => {
+    if (state.busy) setBusy(button, true, "Still waiting for Supabase...");
+  }, SLOW_AUTH_REQUEST_MS);
   setNotice(authMessage);
   try {
     if (signup) {
@@ -272,6 +287,7 @@ authForm.addEventListener("submit", async (event) => {
   } catch (error) {
     setNotice(authMessage, error.message, true);
   } finally {
+    window.clearTimeout(slowRequestTimer);
     state.busy = false;
     setBusy(button, false);
   }
