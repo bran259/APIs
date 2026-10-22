@@ -58,6 +58,21 @@ def test_cors_rejects_unconfigured_origins(api):
     assert "access-control-allow-origin" not in response.headers
 
 
+def test_frontend_is_served_with_static_assets(api):
+    client, _ = api
+
+    page = client.get("/")
+    stylesheet = client.get("/static/styles.css")
+    script = client.get("/static/app.js")
+
+    assert page.status_code == 200
+    assert "Things — a little more organized" in page.text
+    assert stylesheet.status_code == 200
+    assert ".workspace-grid" in stylesheet.text
+    assert script.status_code == 200
+    assert 'fetch(path' in script.text
+
+
 def test_cors_origins_are_loaded_from_environment(app_module):
     assert app_module.CORS_ORIGINS == [
         "http://localhost:3000",

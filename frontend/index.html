@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f5f0">
+    <meta name="description" content="A calm, simple place to keep track of your things.">
+    <title>Things — a little more organized</title>
+    <link rel="icon" href="data:,">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Things home">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>things<span class="brand-period">.</span></span>
+        </a>
+        <div id="account-actions" class="account-actions" hidden>
+          <span id="account-email" class="account-email"></span>
+          <button id="logout-button" class="button button-quiet button-small" type="button">Log out</button>
+        </div>
+      </header>
+
+      <main>
+        <section id="auth-view" class="auth-layout" aria-labelledby="welcome-title">
+          <div class="welcome-panel">
+            <div class="welcome-decoration decoration-one"></div>
+            <div class="welcome-decoration decoration-two"></div>
+            <p class="eyebrow eyebrow-light"><span class="eyebrow-dot"></span> A little room to think</p>
+            <h1 id="welcome-title">Keep the things<br>that matter <em>in view.</em></h1>
+            <p class="welcome-copy">A quieter way to keep track of ideas, plans, and all the little things you don’t want to forget.</p>
+            <div class="welcome-note">
+              <span class="note-icon" aria-hidden="true">✳</span>
+              <span>Simple by design.<br><strong>Yours by default.</strong></span>
+            </div>
+            <div class="welcome-bottom">YOUR PERSONAL SPACE <span>01 — 01</span></div>
+          </div>
+
+          <div class="auth-panel">
+            <div class="auth-heading">
+              <p class="eyebrow">WELCOME TO THINGS</p>
+              <h2 id="auth-title">Good to have you.</h2>
+              <p id="auth-subtitle">Sign in to pick up where you left off.</p>
+            </div>
+            <div class="auth-tabs" role="tablist" aria-label="Account access">
+              <button class="auth-tab is-active" id="login-tab" type="button" role="tab" aria-selected="true" data-mode="login">Sign in</button>
+              <button class="auth-tab" id="signup-tab" type="button" role="tab" aria-selected="false" data-mode="signup">Create account</button>
+            </div>
+            <form id="auth-form" class="form-stack">
+              <label class="field">
+                <span>Email address</span>
+                <input id="auth-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+              </label>
+              <label class="field">
+                <span>Password</span>
+                <input id="auth-password" name="password" type="password" autocomplete="current-password" placeholder="At least 12 characters" required>
+                <small id="password-hint">Use your account password.</small>
+              </label>
+              <button id="auth-submit" class="button button-primary button-wide" type="submit">
+                <span>Sign in</span><span class="button-arrow" aria-hidden="true">↗</span>
+              </button>
+              <p class="form-footnote">Your notes are private and only visible to you.</p>
+            </form>
+            <div id="auth-message" class="notice" role="status" aria-live="polite" hidden></div>
+          </div>
+        </section>
+
+        <section id="workspace-view" class="workspace" aria-labelledby="workspace-title" hidden>
+          <div class="workspace-heading">
+            <div>
+              <p class="eyebrow"><span class="eyebrow-dot"></span> YOUR PERSONAL SPACE</p>
+              <h1 id="workspace-title">A place for <em>your things.</em></h1>
+              <p class="workspace-subtitle">Keep the small stuff somewhere you can find it again.</p>
+            </div>
+            <div class="date-chip"><span class="date-sparkle" aria-hidden="true">✳</span><span id="today-label"></span></div>
+          </div>
+
+          <div class="workspace-grid">
+            <aside class="create-card">
+              <div class="card-kicker"><span class="kicker-number">01</span> ADD SOMETHING</div>
+              <h2>Make a little<br>space for it.</h2>
+              <p class="muted">A thought, a reminder, a thing to come back to.</p>
+              <form id="item-form" class="form-stack">
+                <label class="field">
+                  <span>Give it a name</span>
+                  <input id="item-name" name="name" maxlength="100" placeholder="e.g. Weekend market" required>
+                </label>
+                <label class="field">
+                  <span>A note <small>(optional)</small></span>
+                  <textarea id="item-description" name="description" maxlength="500" rows="4" placeholder="Add a little context..."></textarea>
+                </label>
+                <button id="item-submit" class="button button-dark button-wide" type="submit">
+                  <span>Add to my things</span><span aria-hidden="true">＋</span>
+                </button>
+              </form>
+              <div class="create-card-footer"><span class="tiny-star" aria-hidden="true">✳</span> No folders. No fuss. Just your things.</div>
+            </aside>
+
+            <section class="items-panel" aria-labelledby="items-title">
+              <div class="items-heading">
+                <div>
+                  <div class="card-kicker"><span class="kicker-number">02</span> YOUR COLLECTION</div>
+                  <h2 id="items-title">The things <span id="item-count" class="count-pill">0</span></h2>
+                </div>
+                <button id="refresh-button" class="icon-button" type="button" aria-label="Refresh items" title="Refresh">↻</button>
+              </div>
+              <div id="workspace-message" class="notice" role="status" aria-live="polite" hidden></div>
+              <div id="items-loading" class="loading-state" hidden><span class="spinner"></span> Finding your things...</div>
+              <div id="items-empty" class="empty-state" hidden>
+                <div class="empty-art" aria-hidden="true"><span>✳</span></div>
+                <h3>Nothing here just yet.</h3>
+                <p>Every good collection starts somewhere. Add your first thing to get going.</p>
+              </div>
+              <div id="item-list" class="item-list"></div>
+              <div class="pagination">
+                <span id="page-label">Showing your latest</span>
+                <div class="pagination-actions">
+                  <button id="previous-page" class="button button-quiet button-small" type="button" disabled>← Previous</button>
+                  <button id="next-page" class="button button-quiet button-small" type="button" disabled>Next →</button>
+                </div>
+              </div>
+            </section>
+          </div>
+          <footer class="workspace-footer"><span>MADE FOR THE EVERYDAY THINGS.</span><span>things<span class="brand-period">.</span></span></footer>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="edit-dialog" class="edit-dialog" aria-labelledby="edit-title">
+      <form id="edit-form" class="form-stack">
+        <div class="dialog-topline"><span class="card-kicker"><span class="kicker-number">EDIT</span> YOUR THING</span><button id="close-dialog" class="icon-button" type="button" aria-label="Close">×</button></div>
+        <h2 id="edit-title">A small change.</h2>
+        <div id="edit-message" class="notice" role="status" aria-live="polite" hidden></div>
+        <input id="edit-id" type="hidden">
+        <label class="field"><span>Name</span><input id="edit-name" maxlength="100" required></label>
+        <label class="field"><span>Note <small>(optional)</small></span><textarea id="edit-description" maxlength="500" rows="4"></textarea></label>
+        <div class="dialog-actions">
+          <button id="cancel-edit" class="button button-quiet" type="button">Cancel</button>
+          <button id="save-edit" class="button button-dark" type="submit">Save changes</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

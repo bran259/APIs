@@ -5,14 +5,16 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from threading import Lock
 from typing import Literal, NoReturn
 from uuid import UUID
 from fastapi import FastAPI, HTTPException, Depends, Query, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import (
@@ -82,6 +84,8 @@ CORS_ORIGINS = [
 
 # Initialize the API app
 app = FastAPI()
+FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 
 class ErrorDetail(BaseModel):
@@ -235,6 +239,11 @@ app.add_middleware(
 
 #FastAPI security scheme to extract the "Bearer <token>" header
 security = HTTPBearer()
+
+
+@app.get("/", include_in_schema=False)
+def frontend():
+    return FileResponse(FRONTEND_DIR / "index.html")
 
 
 @app.get("/health/live", response_model=HealthResponse)
