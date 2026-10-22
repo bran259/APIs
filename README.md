@@ -6,7 +6,7 @@
 
 - Python 3.10 or newer.
 - A Supabase project with the Auth email/password provider configured as desired by your app.
-- A deployment platform that supports running a Python web process and setting environment variables/secrets.
+- A Render workspace; the checked-in Blueprint provisions a paid Starter web service.
 
 ### Configure locally
 
@@ -104,23 +104,23 @@ The project reference must match the URL host; the test skips if no integration 
 
 ### Deploy
 
-1. Configure the deployment's secret/environment-variable settings with `SUPABASE_URL`, `SUPABASE_KEY`, and `CORS_ORIGINS`. Use the same Supabase project where you applied the migrations. `CORS_ORIGINS` must contain the deployed frontend's exact origin(s), including scheme and any non-default port; do not use `*`.
-2. Install production dependencies with `python -m pip install -r requirements.txt`.
-3. Set the web process start command to:
+The deployment target is **Render**, defined as a Blueprint in the repository-root [`render.yaml`](./render.yaml). It provisions a paid Starter web service in Oregon, installs `requirements.txt`, runs Uvicorn on Render's `$PORT`, disables automatic deploys so releases can be gated on database changes, and uses `GET /health/ready` as the HTTP health check. Render routes traffic to new instances only after successful health checks. See Render's [Blueprint reference](https://render.com/docs/blueprint-spec) and [HTTP health-check documentation](https://render.com/docs/health-checks) for platform behavior.
 
-   ```sh
-   uvicorn main:app --host 0.0.0.0 --port $PORT
-   ```
+To deploy:
 
-   Configure the platform to provide `PORT` (commonly `8000` if it requires an explicit value). Do not use `--reload` in production. Serve the app behind the platform's HTTPS/reverse-proxy layer.
-4. Confirm the deployment starts successfully, then check `/docs` and make an authenticated request to verify Supabase connectivity and the applied owner RLS policies.
+1. Push the repository to a Git provider supported by Render and create a Blueprint from the repository in the Render Dashboard (**New > Blueprint**). Review the service settings before selecting **Deploy Blueprint**.
+2. Enter `SUPABASE_URL`, `SUPABASE_KEY`, and `CORS_ORIGINS` when prompted, or add them in the service's Environment settings. Use Render's secret environment-variable UI for the Supabase key. Do not commit secret values or put them in `render.yaml`; its `sync: false` entries are intentionally prompts for values outside source control. Render prompts for these values only when the Blueprint is first created; add any new secret variables later through the service's Environment settings. Use the same Supabase project where migrations were applied. `CORS_ORIGINS` must contain the deployed frontend's exact origin(s), including scheme and any non-default port; do not use `*`.
+3. Apply any required SQL migrations in the Supabase SQL Editor **before** deploying code that depends on them. The SQL migrations are not run automatically by Render: no `preDeployCommand` is configured because the repository has no database migration connection secret or controlled migration runner. Review and run new/changed SQL against the intended project as a separate release step.
+4. After migrations succeed, trigger **Manual Deploy > Deploy latest commit** in Render. In the service Events/Logs, verify the deploy completes and the health check passes. Then test `/health/ready`, `/docs`, and an authenticated request against the deployed Supabase project. Render health-check status verifies API/database readiness, not authorization; run the two-account RLS verification above.
+
+The Blueprint is checked into the repository, but creating the Render service requires connecting the repository and supplying secrets in a Render account. Keep Render's forwarded-header trust configuration restricted to the Render proxy; do not enable trust for arbitrary client-supplied forwarding headers.
 
 ### Health checks, logs, and alerts
 
-- Configure the platform's **liveness** probe as `GET /health/live`. It returns `200` while the app process is responding and intentionally does not depend on Supabase.
-- Configure its **readiness** probe as `GET /health/ready`. It performs a zero-row query against `public.items`, returning `200` only when the Supabase REST/database path and table are reachable; failures return a generic `503`. It does not validate user authentication or replace the two-account RLS verification above.
-- Use the platform's application log collection for the Uvicorn stdout/stderr streams. Unexpected application errors and Supabase/database failures include an error log with a traceback; expected client errors are not logged as server failures. Do not enable request-header/body logging for Authorization headers, passwords, or tokens.
-- Create platform alerts for sustained readiness failures, elevated HTTP `5xx` rates, and recurring log messages such as `Database operation ... failed`, `Supabase operation ... failed`, and `Unhandled request error`. Choose the evaluation window and notification destination in your hosting platform; investigate Supabase status and deployment changes when they fire. Alert separately on unusual authentication failure or rate-limit spikes, but avoid paging on individual `401` responses.
+- Render's HTTP health check is configured as **readiness**, `GET /health/ready`. It performs a zero-row query against `public.items`, returning `200` only when the Supabase REST/database path and table are reachable; failures return a generic `503`. Render uses this to gate new deploys and detect unhealthy running instances. The endpoint does not validate user authentication or replace the two-account RLS verification above.
+- `GET /health/live` remains available as a process-only check for external monitors; it does not depend on Supabase.
+- Use Render's application logs for the Uvicorn stdout/stderr streams. Unexpected application errors and Supabase/database failures include an error log with a traceback; expected client errors are not logged as server failures. Do not enable request-header/body logging for Authorization headers, passwords, or tokens.
+- Configure alerts in the Render workspace or an external monitoring service for sustained readiness failures, elevated HTTP `5xx` rates, and recurring log messages such as `Database operation ... failed`, `Supabase operation ... failed`, and `Unhandled request error`. Choose the evaluation window and notification destination in the monitoring service; investigate Supabase status and deployment changes when they fire. Alert separately on unusual authentication failure or rate-limit spikes, but avoid paging on individual `401` responses.
 
 Never commit `.env` or real credentials. `.env` and other `.env.*` files are ignored by Git; `.env.example` contains placeholders only. The repository previously tracked `.env`, so removing it from the current Git tree does **not** remove credentials from earlier commits. If that file ever contained real credentials, rotate the Supabase key in the Supabase dashboard and update your local/deployment secrets.
 
