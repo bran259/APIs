@@ -22,12 +22,11 @@
 
    ```powershell
    py -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   python -m pip install -r requirements.txt
-   uvicorn main:app --host 127.0.0.1 --port 8000
+   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+   .\run_frontend.ps1
    ```
 
-   For local development with auto-reload, use `uvicorn main:app --reload --host 127.0.0.1 --port 8000`. The interactive API documentation is available at `http://127.0.0.1:8000/docs`.
+   Open `http://127.0.0.1:8000/`. Keep the PowerShell window open while using the app; press `Ctrl+C` to stop it. The launcher checks the Supabase settings and whether the port is already occupied, and reports a clear error if setup is incomplete. To choose a different port, run `.\run_frontend.ps1 -Port 8765`. For API docs, open `http://127.0.0.1:8000/docs`.
 
 The simple browser interface is served by the API at `http://127.0.0.1:8000/`. It supports account signup/sign-in, item creation, paginated browsing, editing, deletion, and logout. It uses the same-origin API and keeps the access token in tab-scoped `sessionStorage`; closing the tab clears the session.
 
